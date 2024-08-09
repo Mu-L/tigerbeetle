@@ -3,6 +3,7 @@
 //! - derived configuration values,
 
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const vsr = @import("vsr.zig");
 const tracer = @import("tracer.zig");
@@ -54,7 +55,7 @@ comptime {
 /// constraints described below.
 pub const vsr_checkpoint_interval = journal_slot_count -
     lsm_batch_multiple -
-    lsm_batch_multiple * stdx.div_ceil(pipeline_prepare_queue_max, lsm_batch_multiple);
+    lsm_batch_multiple * stdx.div_ceil(pipeline_prepare_queue_max * 2, lsm_batch_multiple);
 
 comptime {
     // Invariant: to guarantee durability, a log entry from a previous checkpoint can be overwritten
@@ -68,13 +69,20 @@ comptime {
     // sum of:
     // - `lsm_batch_multiple`: Ensure that the final batch of entries immediately preceding a
     //   checkpoint trigger is not overwritten by the following checkpoint's entries. This final
-    //   batch's updates were not persisted as part of the former checkpoint – they are only in memory
-    //   until they are compacted by the *next* batch of commits (i.e. the first batch of the following
-    //   checkpoint).
-    // - `pipeline_prepare_queue_max` (rounded up to the nearest batch multiple): This margin ensures
-    //   that the entries prepared immediately following a checkpoint trigger never overwrite an entry
-    //   from the previous WAL wrap until a quorum of replicas has reached that checkpoint.
-    assert(vsr_checkpoint_interval + lsm_batch_multiple + pipeline_prepare_queue_max <=
+    //   batch's updates were not persisted as part of the former checkpoint – they are only in
+    //   memory until they are compacted by the *next* batch of commits (i.e. the first batch of
+    //   the following checkpoint).
+    // - `2 * pipeline_prepare_queue_max` (rounded up to the nearest batch multiple): This margin
+    //    ensures that the entries prepared immediately following a checkpoint's prepare max never
+    //    overwrite an entry from the previous WAL wrap until a quorum of replicas has reached that
+    //    checkpoint. The first pipeline_prepare_queue_max is the maximum number of entries a
+    //    replica can prepare after a checkpoint trigger, so checkpointing doesn't stall normal
+    //    processing (referred to as the checkpoint's prepare_max). The second
+    //    pipeline_prepare_queue_max ensures entries prepared after a checkpoint's prepare_max
+    //    don't overwrite entries from the previous WAL wrap. By the time we start preparing entries
+    //    after the second pipeline_prepare_queue_max, a quorum of replicas is guaranteed to have
+    //    already reached the former checkpoint.
+    assert(vsr_checkpoint_interval + lsm_batch_multiple + pipeline_prepare_queue_max * 2 <=
         journal_slot_count);
     assert(vsr_checkpoint_interval >= pipeline_prepare_queue_max);
     assert(vsr_checkpoint_interval >= lsm_batch_multiple);
@@ -94,6 +102,30 @@ comptime {
 /// The maximum number of release versions (upgrade candidates) that can be advertised by a replica
 /// in each ping message body.
 pub const vsr_releases_max = config.cluster.vsr_releases_max;
+
+/// The maximum cumulative size of a final TigerBeetle output binary - including potential past
+/// releases and metadata.
+pub fn multiversion_binary_platform_size_max(options: struct { macos: bool, debug: bool }) u64 {
+    // {Linux, Windows} get the base value. macOS gets 2x since it has universal binaries. All cases
+    // get a further 2x in debug.
+    var size_max = config.process.multiversion_binary_platform_size_max;
+    if (options.macos) size_max *= 2;
+    if (options.debug) size_max *= 2;
+
+    return size_max;
+}
+
+/// The maximum size, like above, but for any platform.
+pub const multiversion_binary_size_max =
+    config.process.multiversion_binary_platform_size_max * 2 * 2;
+comptime {
+    assert(multiversion_binary_platform_size_max(.{
+        .macos = true,
+        .debug = true,
+    }) <= multiversion_binary_size_max);
+}
+
+pub const multiversion_poll_interval_ms = config.process.multiversion_poll_interval_ms;
 
 comptime {
     assert(vsr_releases_max >= 2);
@@ -154,7 +186,8 @@ pub const cache_transfers_size_default = config.process.cache_transfers_size_def
 
 /// The default size of the two-phase transfers in-memory cache:
 /// This impacts the amount of memory allocated at initialization by the server.
-pub const cache_transfers_pending_size_default = config.process.cache_transfers_pending_size_default;
+pub const cache_transfers_pending_size_default =
+    config.process.cache_transfers_pending_size_default;
 
 /// The default size of historical balances in-memory cache:
 /// This impacts the amount of memory allocated at initialization by the server.
@@ -398,7 +431,8 @@ pub const connection_send_queue_max_replica = @max(@min(clients_max, 4), 2);
 /// The client has one in-flight request, and occasionally a ping.
 pub const connection_send_queue_max_client = 2;
 
-/// The maximum number of outgoing requests that may be queued on a client (including the in-flight request).
+/// The maximum number of outgoing requests that may be queued on a client (including the in-flight
+/// request).
 pub const client_request_queue_max = config.process.client_request_queue_max;
 
 /// The maximum number of connections in the kernel's complete connection queue pending an accept():
@@ -446,10 +480,10 @@ pub const tcp_keepcnt = config.process.tcp_keepcnt;
 /// The time (in milliseconds) to timeout an idle connection or unacknowledged send:
 /// This timer rides on the granularity of the keepalive or retransmission timers.
 /// For example, if keepalive will only send a probe after 10s then this becomes the lower bound
-/// for tcp_user_timeout_ms to fire, even if tcp_user_timeout_ms is 2s. Nevertheless, this would timeout
-/// the connection at 10s rather than wait for tcp_keepcnt probes to be sent. At the same time, if
-/// tcp_user_timeout_ms is larger than the max keepalive time then tcp_keepcnt will be ignored and
-/// more keepalive probes will be sent until tcp_user_timeout_ms fires.
+/// for tcp_user_timeout_ms to fire, even if tcp_user_timeout_ms is 2s. Nevertheless, this would
+/// timeout the connection at 10s rather than wait for tcp_keepcnt probes to be sent. At the same
+/// time, if tcp_user_timeout_ms is larger than the max keepalive time then tcp_keepcnt will be
+/// ignored and more keepalive probes will be sent until tcp_user_timeout_ms fires.
 /// For a thorough overview of how these settings interact:
 /// https://blog.cloudflare.com/when-tcp-sockets-refuse-to-die/
 pub const tcp_user_timeout_ms = (tcp_keepidle + tcp_keepintvl * tcp_keepcnt) * 1000;
@@ -480,7 +514,8 @@ pub const direct_io = config.process.direct_io;
 
 // TODO Add in the upper-bound that the Superblock will use.
 pub const iops_read_max = journal_iops_read_max + client_replies_iops_read_max + grid_iops_read_max;
-pub const iops_write_max = journal_iops_write_max + client_replies_iops_write_max + grid_iops_write_max;
+pub const iops_write_max = journal_iops_write_max + client_replies_iops_write_max +
+    grid_iops_write_max;
 
 /// The maximum number of concurrent WAL read I/O operations to allow at once.
 pub const journal_iops_read_max = config.process.journal_iops_read_max;
@@ -543,7 +578,8 @@ pub const storage_size_limit_max = config.process.storage_size_limit_max;
 
 /// The unit of read/write access to LSM manifest and LSM table blocks in the block storage zone.
 ///
-/// - A lower block size increases the memory overhead of table metadata, due to smaller/more tables.
+/// - A lower block size increases the memory overhead of table metadata, due to smaller/more
+///   tables.
 /// - A higher block size increases space amplification due to partially-filled blocks.
 pub const block_size = config.cluster.block_size;
 
@@ -571,6 +607,10 @@ comptime {
 /// amplification can be optimized more easily (with caching), we target a growth
 /// factor of 8 for lower write amplification rather than the more typical growth factor of 10.
 pub const lsm_growth_factor = config.cluster.lsm_growth_factor;
+
+comptime {
+    assert(lsm_growth_factor > 1);
+}
 
 /// Size of nodes used by the LSM tree manifest implementation.
 /// TODO Double-check this with our "LSM Manifest" spreadsheet.
@@ -646,6 +686,15 @@ pub const lsm_manifest_memory_size_multiplier = lsm_manifest_memory_multiplier: 
     break :lsm_manifest_memory_multiplier lsm_manifest_memory_multiplier;
 };
 
+/// The LSM will attempt to coalesce a table if it is less full than this threshold.
+pub const lsm_table_coalescing_threshold_percent =
+    config.cluster.lsm_table_coalescing_threshold_percent;
+
+comptime {
+    assert(lsm_table_coalescing_threshold_percent > 0); // Ensure that coalescing is possible.
+    assert(lsm_table_coalescing_threshold_percent < 100); // Don't coalesce full tables.
+}
+
 /// The number of milliseconds between each replica tick, the basic unit of time in TigerBeetle.
 /// Used to regulate heartbeats, retries and timeouts, all specified as multiples of a tick.
 pub const tick_ms = config.process.tick_ms;
@@ -678,7 +727,8 @@ pub const clock_epoch_max_ms = config.process.clock_epoch_max_ms;
 
 /// The amount of time to wait for enough accurate samples before synchronizing the clock.
 /// The more samples we can take per remote clock source, the more accurate our estimation becomes.
-/// This impacts cluster startup time as the primary must first wait for synchronization to complete.
+/// This impacts cluster startup time as the primary must first wait for synchronization to
+/// complete.
 pub const clock_synchronization_window_min_ms = config.process.clock_synchronization_window_min_ms;
 
 /// The amount of time without agreement before the clock window is expired and a new window opened.

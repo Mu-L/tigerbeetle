@@ -128,11 +128,11 @@ fn validate_release(shell: *Shell, gpa: std.mem.Allocator, language_requested: ?
     // Enable this once deterministic zip generation has been merged in and released.
     // const raw_run_number = stdx.cut(stdx.cut(tag, ".").?.suffix, ".").?.suffix;
 
-    // // The +185 comes from how release.zig calculates the version number.
+    // // The +188 comes from how release.zig calculates the version number.
     // const run_number = try std.fmt.allocPrint(
     //     shell.arena.allocator(),
     //     "{}",
-    //     .{try std.fmt.parseInt(u32, raw_run_number, 10) + 185},
+    //     .{try std.fmt.parseInt(u32, raw_run_number, 10) + 188},
     // );
 
     // const sha = try shell.exec_stdout("git rev-parse HEAD", .{});
@@ -159,7 +159,7 @@ fn validate_release(shell: *Shell, gpa: std.mem.Allocator, language_requested: ?
     //     });
     //     try shell.pushd_dir(tmp_dir.dir);
 
-    //     // Slice the output to supress the names.
+    //     // Slice the output to suppress the names.
     //     if (!std.mem.eql(u8, checksum_downloaded[0..64], checksum_built[0..64])) {
     //         std.debug.panic("checksum mismatch - {s}: downloaded {s}, built {s}", .{
     //             artifact,

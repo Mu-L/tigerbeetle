@@ -1,13 +1,10 @@
 const std = @import("std");
 
-// TODO: Move this back to src/clients/java when there's a better solution for main_pkg_path=src/
-const vsr = @import("vsr.zig");
+const vsr = @import("vsr");
 const stdx = vsr.stdx;
 const tb = vsr.tigerbeetle;
 const tb_client = vsr.tb_client;
 const assert = std.debug.assert;
-
-const output_path = "src/clients/java/src/main/java/com/tigerbeetle/";
 
 const TypeMapping = struct {
     name: []const u8,
@@ -71,19 +68,35 @@ const type_mappings = .{
     .{ tb.AccountFilterFlags, TypeMapping{
         .name = "AccountFilterFlags",
         .private_fields = &.{"padding"},
-        .visibility = .public,
-        .docs_link = "reference/account-filter#flags",
+        .visibility = .internal,
+    } },
+    .{ tb.QueryFilterFlags, TypeMapping{
+        .name = "QueryFilterFlags",
+        .private_fields = &.{"padding"},
+        .visibility = .internal,
     } },
     .{ tb.Account, TypeMapping{
         .name = "AccountBatch",
         .private_fields = &.{"reserved"},
-        .readonly_fields = &.{ "debits_pending", "credits_pending", "debits_posted", "credits_posted", "timestamp" },
+        .readonly_fields = &.{
+            "debits_pending",
+            "credits_pending",
+            "debits_posted",
+            "credits_posted",
+            "timestamp",
+        },
         .docs_link = "reference/account#",
     } },
     .{ tb.AccountBalance, TypeMapping{
         .name = "AccountBalanceBatch",
         .private_fields = &.{"reserved"},
-        .readonly_fields = &.{ "debits_pending", "credits_pending", "debits_posted", "credits_posted", "timestamp" },
+        .readonly_fields = &.{
+            "debits_pending",
+            "credits_pending",
+            "debits_posted",
+            "credits_posted",
+            "timestamp",
+        },
         .docs_link = "reference/account-balances#",
     } },
     .{ tb.Transfer, TypeMapping{
@@ -113,15 +126,16 @@ const type_mappings = .{
         .visibility = .internal,
         .private_fields = &.{"reserved"},
     } },
+    .{ tb.QueryFilter, TypeMapping{
+        .name = "QueryFilterBatch",
+        .visibility = .internal,
+        .private_fields = &.{"reserved"},
+    } },
     .{ tb_client.tb_status_t, TypeMapping{
         .name = "InitializationStatus",
     } },
     .{ tb_client.tb_packet_status_t, TypeMapping{
         .name = "PacketStatus",
-    } },
-    .{ tb_client.tb_packet_acquire_status_t, TypeMapping{
-        .name = "PacketAcquireStatus",
-        .visibility = .internal,
     } },
 };
 
@@ -624,7 +638,7 @@ fn emit_u128_batch_accessors(
             \\    {[visibility]s}BigInteger get{[property]s}() {{
             \\        final var index = at(Struct.{[property]s});
             \\        return UInt128.asBigInteger(
-            \\            getUInt128(index, UInt128.LeastSignificant), 
+            \\            getUInt128(index, UInt128.LeastSignificant),
             \\            getUInt128(index, UInt128.MostSignificant));
             \\    }}
             \\
@@ -673,7 +687,8 @@ fn emit_u128_batch_accessors(
     // Get long:
     try buffer.writer().print(
         \\    /**
-        \\     * @param part a {{@link UInt128}} enum indicating which part of the 128-bit value is to be retrieved.
+        \\     * @param part a {{@link UInt128}} enum indicating which part of the 128-bit value
+        \\              is to be retrieved.
         \\     * @return a {{@code long}} representing the first 8 bytes of the 128-bit value if
         \\     *         {{@link UInt128#LeastSignificant}} is informed, or the last 8 bytes if
         \\     *         {{@link UInt128#MostSignificant}}.
@@ -899,45 +914,31 @@ pub fn generate_bindings(
 }
 
 pub fn main() !void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
+    var args = try std.process.argsWithAllocator(allocator);
+    defer args.deinit();
+    assert(args.skip());
+    const target_dir_path = args.next().?;
+    assert(args.next() == null);
+
+    var target_dir = try std.fs.cwd().openDir(target_dir_path, .{});
+    defer target_dir.close();
+
     // Emit Java declarations.
     inline for (type_mappings) |type_mapping| {
         const ZigType = type_mapping[0];
         const mapping = type_mapping[1];
 
-        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-        defer arena.deinit();
-        const allocator = arena.allocator();
-
         var buffer = std.ArrayList(u8).init(allocator);
         try generate_bindings(ZigType, mapping, &buffer);
 
-        try std.fs.cwd().writeFile(.{
-            .sub_path = output_path ++ mapping.name ++ ".java",
+        try target_dir.writeFile(.{
+            .sub_path = mapping.name ++ ".java",
             .data = buffer.items,
         });
-    }
-}
-
-const testing = std.testing;
-
-test "bindings java" {
-    // Test Java declarations.
-    inline for (type_mappings) |type_mapping| {
-        const ZigType = type_mapping[0];
-        const mapping = type_mapping[1];
-
-        var buffer = std.ArrayList(u8).init(testing.allocator);
-        defer buffer.deinit();
-
-        try generate_bindings(ZigType, mapping, &buffer);
-
-        const current = try std.fs.cwd().readFileAlloc(
-            testing.allocator,
-            output_path ++ mapping.name ++ ".java",
-            std.math.maxInt(usize),
-        );
-        defer testing.allocator.free(current);
-
-        try testing.expectEqualStrings(buffer.items, current);
     }
 }

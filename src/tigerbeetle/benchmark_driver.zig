@@ -25,7 +25,7 @@ const log = std.log;
 pub fn main(allocator: std.mem.Allocator, args: *const cli.Command.Benchmark) !void {
     // Note: we intentionally don't use a temporary directory for this data file, and instead just
     // put it into CWD, as performance of TigerBeetle very much depends on a specific file system.
-    const data_file = data_file: {
+    const data_file = args.file orelse data_file: {
         var random_bytes: [4]u8 = undefined;
         std.crypto.random.bytes(&random_bytes);
         const random_suffix: [8]u8 = std.fmt.bytesToHex(random_bytes, .lower);
@@ -34,17 +34,14 @@ pub fn main(allocator: std.mem.Allocator, args: *const cli.Command.Benchmark) !v
 
     var data_file_created = false;
     defer {
-        if (data_file_created) {
+        if (data_file_created and args.file == null) {
             std.fs.cwd().deleteFile(data_file) catch {};
         }
     }
 
     var tigerbeetle_process: ?TigerBeetleProcess = null;
     defer if (tigerbeetle_process) |*p| {
-        const rusage = p.deinit();
-        if (rusage.getMaxRss()) |max_rss_bytes| {
-            std.io.getStdOut().writer().print("\nrss = {} bytes\n", .{max_rss_bytes}) catch {};
-        }
+        _ = p.deinit();
     };
 
     var maybe_stat_empty: ?std.fs.File.Stat = null;
@@ -63,8 +60,20 @@ pub fn main(allocator: std.mem.Allocator, args: *const cli.Command.Benchmark) !v
         });
     }
 
-    const addresses = args.addresses orelse &.{tigerbeetle_process.?.address};
+    const addresses = if (args.addresses) |*addresses|
+        addresses.const_slice()
+    else
+        &.{tigerbeetle_process.?.address};
     try benchmark_load.main(allocator, addresses, args);
+
+    if (tigerbeetle_process) |*p| {
+        const rusage = p.deinit();
+        tigerbeetle_process = null;
+
+        if (rusage.getMaxRss()) |max_rss_bytes| {
+            std.io.getStdOut().writer().print("\nrss = {} bytes\n", .{max_rss_bytes}) catch {};
+        }
+    }
 
     if (data_file_created) {
         const stat = try std.fs.cwd().statFile(data_file);

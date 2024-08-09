@@ -9,14 +9,12 @@ namespace TigerBeetle;
 
 public sealed class Client : IDisposable
 {
-    private const int DEFAULT_CONCURRENCY_MAX = 256; // arbitrary
-
     private readonly UInt128 clusterID;
     private readonly NativeClient nativeClient;
 
-    public Client(UInt128 clusterID, string[] addresses, int concurrencyMax = DEFAULT_CONCURRENCY_MAX)
+    public Client(UInt128 clusterID, string[] addresses)
     {
-        this.nativeClient = NativeClient.Init(clusterID, addresses, concurrencyMax);
+        this.nativeClient = NativeClient.Init(clusterID, addresses);
         this.clusterID = clusterID;
     }
 
@@ -145,6 +143,26 @@ public sealed class Client : IDisposable
     public Task<AccountBalance[]> GetAccountBalancesAsync(AccountFilter filter)
     {
         return nativeClient.CallRequestAsync<AccountBalance, AccountFilter>(TBOperation.GetAccountBalances, new[] { filter });
+    }
+
+    public Account[] QueryAccounts(QueryFilter filter)
+    {
+        return nativeClient.CallRequest<Account, QueryFilter>(TBOperation.QueryAccounts, new[] { filter });
+    }
+
+    public Task<Account[]> QueryAccountsAsync(QueryFilter filter)
+    {
+        return nativeClient.CallRequestAsync<Account, QueryFilter>(TBOperation.QueryAccounts, new[] { filter });
+    }
+
+    public Transfer[] QueryTransfers(QueryFilter filter)
+    {
+        return nativeClient.CallRequest<Transfer, QueryFilter>(TBOperation.QueryTransfers, new[] { filter });
+    }
+
+    public Task<Transfer[]> QueryTransfersAsync(QueryFilter filter)
+    {
+        return nativeClient.CallRequestAsync<Transfer, QueryFilter>(TBOperation.QueryTransfers, new[] { filter });
     }
 
     public void Dispose()

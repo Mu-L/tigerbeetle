@@ -3,7 +3,7 @@ const assert = std.debug.assert;
 const maybe = stdx.maybe;
 const log = std.log.scoped(.test_replica);
 const expectEqual = std.testing.expectEqual;
-const expect = std.testing.expectEqual;
+const expect = std.testing.expect;
 const allocator = std.testing.allocator;
 
 const stdx = @import("../stdx.zig");
@@ -34,20 +34,19 @@ const log_level = std.log.Level.err;
 
 const releases = .{
     .{
-        .release = vsr.Release.from(.{ .major = 0, .minor = 0, .patch = 1 }),
-        .release_client_min = vsr.Release.from(.{ .major = 0, .minor = 0, .patch = 1 }),
+        .release = vsr.Release.from(.{ .major = 0, .minor = 0, .patch = 10 }),
+        .release_client_min = vsr.Release.from(.{ .major = 0, .minor = 0, .patch = 10 }),
     },
     .{
-        .release = vsr.Release.from(.{ .major = 0, .minor = 0, .patch = 2 }),
-        .release_client_min = vsr.Release.from(.{ .major = 0, .minor = 0, .patch = 1 }),
+        .release = vsr.Release.from(.{ .major = 0, .minor = 0, .patch = 20 }),
+        .release_client_min = vsr.Release.from(.{ .major = 0, .minor = 0, .patch = 10 }),
     },
     .{
-        .release = vsr.Release.from(.{ .major = 0, .minor = 0, .patch = 3 }),
-        .release_client_min = vsr.Release.from(.{ .major = 0, .minor = 0, .patch = 1 }),
+        .release = vsr.Release.from(.{ .major = 0, .minor = 0, .patch = 30 }),
+        .release_client_min = vsr.Release.from(.{ .major = 0, .minor = 0, .patch = 10 }),
     },
 };
 
-// TODO Test client eviction once it no longer triggers a client panic.
 // TODO Detect when cluster has stabilized and stop run() early, rather than just running for a
 //      fixed number of ticks.
 
@@ -207,8 +206,9 @@ test "Cluster: recovery: grid corruption (disjoint)" {
         t.replica(.R1),
         t.replica(.R2),
     }, 0..) |replica, i| {
+        const address_max = t.block_address_max();
         var address: u64 = 1 + i; // Addresses start at 1.
-        while (address <= Storage.grid_blocks_max) : (address += 3) {
+        while (address <= address_max) : (address += 3) {
             // Leave every third address un-corrupt.
             // Each block exists intact on exactly one replica.
             replica.corrupt(.{ .grid_block = address + 1 });
@@ -346,7 +346,7 @@ test "Cluster: network: partition 2-1 (isolate backup, asymmetric, receive-only)
     // Prepares may be reordered by the network, and if B1 receives X+1 then X,
     // it will not forward X on, as it is a "repair".
     // And B2 is partitioned, so it cannot repair its hash chain.
-    try std.testing.expect(t.replica(.B2).commit() >= 2);
+    try expect(t.replica(.B2).commit() >= 2);
 }
 
 test "Cluster: network: partition 1-2 (isolate primary, symmetric)" {
@@ -431,6 +431,21 @@ test "Cluster: network: partition client-primary (asymmetric, drop replies)" {
     // TODO: https://github.com/tigerbeetle/tigerbeetle/issues/444
     // try c.request(1, 1);
     try c.request(1, 0);
+}
+
+test "Cluster: network: partition flexible quorum" {
+    // Two out of four replicas should be able to carry on as long the pair includes the primary.
+    const t = try TestContext.init(.{ .replica_count = 4 });
+    defer t.deinit();
+
+    var c = t.clients(0, t.cluster.clients.len);
+
+    t.run();
+    t.replica(.B2).stop();
+    t.replica(.B3).stop();
+    for (0..3) |_| t.run(); // Give enough time for the clocks to desync.
+
+    try c.request(4, 4);
 }
 
 test "Cluster: repair: partition 2-1, then backup fast-forward 1 checkpoint" {
@@ -696,7 +711,10 @@ test "Cluster: repair: primary checkpoint, backup crash before checkpoint, prima
     b1.pass(.R_, .incoming, .commit);
     b1.stop();
     b1.corrupt(.{ .wal_prepare = 1 });
-    try c.request(checkpoint_1_trigger + constants.pipeline_prepare_queue_max, checkpoint_1_trigger);
+    try c.request(
+        checkpoint_1_trigger + constants.pipeline_prepare_queue_max,
+        checkpoint_1_trigger,
+    );
     try b1.open();
     t.run();
 
@@ -1126,12 +1144,12 @@ test "Cluster: sync: slightly lagging replica" {
     // Corrupt all copies of a checkpointed prepare.
     a0.corrupt(.{ .wal_prepare = checkpoint_1 });
     b1.corrupt(.{ .wal_prepare = checkpoint_1 });
-    try c.request(checkpoint_1_trigger + 2, checkpoint_1_trigger + 2);
+    try c.request(checkpoint_1_prepare_max + 1, checkpoint_1_prepare_max + 1);
 
     // At this point, b2 won't be able to repair WAL and must state sync.
     b2.pass_all(.R_, .bidirectional);
-    try c.request(checkpoint_1_trigger + 3, checkpoint_1_trigger + 3);
-    try expectEqual(t.replica(.R_).commit(), checkpoint_1_trigger + 3);
+    try c.request(checkpoint_1_prepare_max + 2, checkpoint_1_prepare_max + 2);
+    try expectEqual(t.replica(.R_).commit(), checkpoint_1_prepare_max + 2);
 }
 
 test "Cluster: sync: checkpoint from a newer view" {
@@ -1260,18 +1278,18 @@ test "Cluster: upgrade: operation=upgrade near trigger-minus-bar" {
         try c.request(data.request, data.request);
 
         t.replica(.R_).stop();
-        try t.replica(.R_).open_upgrade(&[_]u8{ 1, 2 });
+        try t.replica(.R_).open_upgrade(&[_]u8{ 10, 20 });
 
         // Prevent the upgrade from committing so that we can verify that the replica is still
         // running version 1.
         t.replica(.R_).drop(.__, .bidirectional, .prepare_ok);
         t.run();
         try expectEqual(t.replica(.R_).op_checkpoint(), 0);
-        try expectEqual(t.replica(.R_).release(), 1);
+        try expectEqual(t.replica(.R_).release(), 10);
 
         t.replica(.R_).pass(.__, .bidirectional, .prepare_ok);
         t.run();
-        try expectEqual(t.replica(.R_).release(), 2);
+        try expectEqual(t.replica(.R_).release(), 20);
         try expectEqual(t.replica(.R_).op_checkpoint(), data.checkpoint);
         try expectEqual(t.replica(.R_).commit(), trigger_for_checkpoint(data.checkpoint).?);
         try expectEqual(t.replica(.R_).op_head(), trigger_for_checkpoint(data.checkpoint).?);
@@ -1287,11 +1305,11 @@ test "Cluster: upgrade: R=1" {
     defer t.deinit();
 
     t.replica(.R_).stop();
-    try t.replica(.R0).open_upgrade(&[_]u8{ 1, 2 });
+    try t.replica(.R0).open_upgrade(&[_]u8{ 10, 20 });
     t.run();
 
     try expectEqual(t.replica(.R0).health(), .up);
-    try expectEqual(t.replica(.R0).release(), 2);
+    try expectEqual(t.replica(.R0).release(), 20);
     try expectEqual(t.replica(.R0).op_checkpoint(), checkpoint_1);
     try expectEqual(t.replica(.R0).commit(), checkpoint_1_trigger);
 }
@@ -1303,26 +1321,29 @@ test "Cluster: upgrade: state-sync to new release" {
     var c = t.clients(0, t.cluster.clients.len);
 
     t.replica(.R_).stop();
-    try t.replica(.R0).open_upgrade(&[_]u8{ 1, 2 });
-    try t.replica(.R1).open_upgrade(&[_]u8{ 1, 2 });
-    try c.request(checkpoint_2_trigger, checkpoint_2_trigger);
+    try t.replica(.R0).open_upgrade(&[_]u8{ 10, 20 });
+    try t.replica(.R1).open_upgrade(&[_]u8{ 10, 20 });
+    t.run();
+    try expectEqual(t.replica(.R0).commit(), checkpoint_1_trigger);
+    try c.request(constants.vsr_checkpoint_interval, constants.vsr_checkpoint_interval);
+    try expectEqual(t.replica(.R0).commit(), checkpoint_2_trigger);
 
     // R2 state-syncs from R0/R1, updating its release from v1 to v2 via CheckpointState...
     try t.replica(.R2).open();
     try expectEqual(t.replica(.R2).health(), .up);
-    try expectEqual(t.replica(.R2).release(), 1);
+    try expectEqual(t.replica(.R2).release(), 10);
     try expectEqual(t.replica(.R2).commit(), 0);
     t.run();
 
     // ...But R2 doesn't have v2 available, so it shuts down.
     try expectEqual(t.replica(.R2).health(), .down);
-    try expectEqual(t.replica(.R2).release(), 1);
+    try expectEqual(t.replica(.R2).release(), 10);
     try expectEqual(t.replica(.R2).commit(), checkpoint_2);
 
     // Start R2 up with v2 available, and it recovers.
-    try t.replica(.R2).open_upgrade(&[_]u8{ 1, 2 });
+    try t.replica(.R2).open_upgrade(&[_]u8{ 10, 20 });
     try expectEqual(t.replica(.R2).health(), .up);
-    try expectEqual(t.replica(.R2).release(), 2);
+    try expectEqual(t.replica(.R2).release(), 20);
     try expectEqual(t.replica(.R2).commit(), checkpoint_2);
 
     t.run();
@@ -1349,8 +1370,9 @@ test "Cluster: scrub: background scrubber, fully corrupt grid" {
     // Note that we intentionally do *not* shut down B2 for this – the intent is to test the
     // scrubber, without leaning on Grid.read_block()'s `from_local_or_global_storage`.
     {
+        const address_max = t.block_address_max();
         var address: u64 = 1;
-        while (address <= Storage.grid_blocks_max) : (address += 1) {
+        while (address <= address_max) : (address += 1) {
             b2.corrupt(.{ .grid_block = address });
         }
     }
@@ -1375,8 +1397,9 @@ test "Cluster: scrub: background scrubber, fully corrupt grid" {
     }
 
     // Verify that B2 repaired all blocks.
+    const address_max = t.block_address_max();
     var address: u64 = 1;
-    while (address <= Storage.grid_blocks_max) : (address += 1) {
+    while (address <= address_max) : (address += 1) {
         if (a0_free_set.is_free(address)) {
             assert(b2_free_set.is_free(address));
             assert(b2_storage.area_faulty(.{ .grid = .{ .address = address } }));
@@ -1408,7 +1431,7 @@ test "Cluster: client: empty command=request operation=register body" {
         .request = 0,
         .command = .request,
         .operation = .register,
-        .release = .{ .value = 1 },
+        .release = releases[0].release,
     };
     request_header.set_checksum_body(&.{}); // Note the absence of a `vsr.RegisterRequest`.
     request_header.set_checksum();
@@ -1426,7 +1449,82 @@ test "Cluster: client: empty command=request operation=register body" {
     try expectEqual(reply.header.operation, .register);
     try expectEqual(reply.header.size, @sizeOf(Reply));
     try expectEqual(reply.header.request, 0);
-    try std.testing.expect(stdx.zeroed(std.mem.asBytes(&reply.body)));
+    try expect(stdx.zeroed(std.mem.asBytes(&reply.body)));
+}
+
+test "Cluster: eviction: no_session" {
+    const t = try TestContext.init(.{
+        .replica_count = 3,
+        .client_count = constants.clients_max + 1,
+    });
+    defer t.deinit();
+
+    var c0 = t.clients(0, 1);
+    var c = t.clients(1, constants.clients_max);
+
+    // Register a single client.
+    try c0.request(1, 1);
+    // Register clients_max other clients.
+    // This evicts the "extra" client, though the eviction message has not been sent yet.
+    try c.request(constants.clients_max, constants.clients_max);
+
+    // Try to send one last request -- which fails, since this client has been evicted.
+    try c0.request(2, 1);
+    try expectEqual(c0.eviction_reason(), .no_session);
+    try expectEqual(c.eviction_reason(), null);
+}
+
+test "Cluster: eviction: release_too_low" {
+    const t = try TestContext.init(.{
+        .replica_count = 3,
+        .client_release = .{ .value = releases[0].release.value - 1 },
+    });
+    defer t.deinit();
+
+    var c0 = t.clients(0, 1);
+    try c0.request(1, 0);
+    try expectEqual(c0.eviction_reason(), .release_too_low);
+}
+
+test "Cluster: eviction: release_too_high" {
+    const t = try TestContext.init(.{
+        .replica_count = 3,
+        .client_release = .{ .value = releases[0].release.value + 1 },
+    });
+    defer t.deinit();
+
+    var c0 = t.clients(0, 1);
+    try c0.request(1, 0);
+    try expectEqual(c0.eviction_reason(), .release_too_high);
+}
+
+test "Cluster: eviction: session_too_low" {
+    const t = try TestContext.init(.{
+        .replica_count = 3,
+        .client_count = constants.clients_max + 1,
+    });
+    defer t.deinit();
+
+    var c0 = t.clients(0, 1);
+    var c = t.clients(1, constants.clients_max);
+
+    t.replica(.R_).record(.C0, .incoming, .request);
+    try c0.request(1, 1);
+
+    // Evict C0. (C0 doesn't know this yet, though).
+    try c.request(constants.clients_max, constants.clients_max);
+    try expectEqual(c0.eviction_reason(), null);
+
+    // Replay C0's register message.
+    t.replica(.R_).replay_recorded();
+    t.run();
+
+    const mark = marks.check("on_request: ignoring older session");
+
+    // C0 now has a session again, but the client only knows the old (evicted) session number.
+    try c0.request(2, 1);
+    try mark.expect_hit();
+    try expectEqual(c0.eviction_reason(), .session_too_low);
 }
 
 const ProcessSelector = enum {
@@ -1452,18 +1550,20 @@ const ProcessSelector = enum {
     B4,
     B5,
     C_, // all clients
+    C0,
 };
 
 const TestContext = struct {
     cluster: *Cluster,
     log_level: std.log.Level,
-    client_requests: [constants.clients_max]usize = [_]usize{0} ** constants.clients_max,
-    client_replies: [constants.clients_max]usize = [_]usize{0} ** constants.clients_max,
+    client_requests: []usize,
+    client_replies: []usize,
 
     pub fn init(options: struct {
         replica_count: u8,
         standby_count: u8 = 0,
         client_count: u8 = constants.clients_max,
+        client_release: vsr.Release = releases[0].release,
         seed: u64 = 123,
     }) !*TestContext {
         const log_level_original = std.testing.log_level;
@@ -1471,14 +1571,15 @@ const TestContext = struct {
         var prng = std.rand.DefaultPrng.init(options.seed);
         const random = prng.random();
 
-        const cluster = try Cluster.init(allocator, TestContext.on_client_reply, .{
+        const cluster = try Cluster.init(allocator, .{
             .cluster_id = 0,
             .replica_count = options.replica_count,
             .standby_count = options.standby_count,
             .client_count = options.client_count,
-            .storage_size_limit = vsr.sector_floor(constants.storage_size_limit_max),
+            .storage_size_limit = vsr.sector_floor(128 * 1024 * 1024),
             .seed = random.int(u64),
             .releases = &releases,
+            .client_release = options.client_release,
             .network = .{
                 .node_count = options.replica_count + options.standby_count,
                 .client_count = options.client_count,
@@ -1508,10 +1609,19 @@ const TestContext = struct {
                 .batch_size_limit = constants.message_body_size_max,
                 .lsm_forest_node_count = 4096,
             },
+            .on_client_reply = TestContext.on_client_reply,
         });
         errdefer cluster.deinit();
 
         for (cluster.storages) |*storage| storage.faulty = true;
+
+        const client_requests = try allocator.alloc(usize, options.client_count);
+        errdefer allocator.free(client_requests);
+        @memset(client_requests, 0);
+
+        const client_replies = try allocator.alloc(usize, options.client_count);
+        errdefer allocator.free(client_replies);
+        @memset(client_replies, 0);
 
         const context = try allocator.create(TestContext);
         errdefer allocator.destroy(context);
@@ -1519,6 +1629,8 @@ const TestContext = struct {
         context.* = .{
             .cluster = cluster,
             .log_level = log_level_original,
+            .client_requests = client_requests,
+            .client_replies = client_replies,
         };
         cluster.context = context;
 
@@ -1527,6 +1639,8 @@ const TestContext = struct {
 
     pub fn deinit(t: *TestContext) void {
         std.testing.log_level = t.log_level;
+        allocator.free(t.client_replies);
+        allocator.free(t.client_requests);
         t.cluster.deinit();
         allocator.destroy(t);
     }
@@ -1565,6 +1679,14 @@ const TestContext = struct {
         }
     }
 
+    pub fn block_address_max(t: *TestContext) u64 {
+        const grid_blocks = t.cluster.storages[0].grid_blocks();
+        for (t.cluster.storages) |storage| {
+            assert(storage.grid_blocks() == grid_blocks);
+        }
+        return grid_blocks; // NB: no -1 needed, addresses start from 1.
+    }
+
     /// Returns whether the cluster state advanced.
     fn tick(t: *TestContext) bool {
         const commits_before = t.cluster.state_checker.commits.items.len;
@@ -1575,8 +1697,8 @@ const TestContext = struct {
     fn on_client_reply(
         cluster: *Cluster,
         client: usize,
-        request: *Message.Request,
-        reply: *Message.Reply,
+        request: *const Message.Request,
+        reply: *const Message.Reply,
     ) void {
         _ = request;
         _ = reply;
@@ -1606,12 +1728,19 @@ const TestContext = struct {
             .S3 => array.append_assume_capacity(.{ .replica = replica_count + 3 }),
             .S4 => array.append_assume_capacity(.{ .replica = replica_count + 4 }),
             .S5 => array.append_assume_capacity(.{ .replica = replica_count + 5 }),
-            .A0 => array.append_assume_capacity(.{ .replica = @intCast((view + 0) % replica_count) }),
-            .B1 => array.append_assume_capacity(.{ .replica = @intCast((view + 1) % replica_count) }),
-            .B2 => array.append_assume_capacity(.{ .replica = @intCast((view + 2) % replica_count) }),
-            .B3 => array.append_assume_capacity(.{ .replica = @intCast((view + 3) % replica_count) }),
-            .B4 => array.append_assume_capacity(.{ .replica = @intCast((view + 4) % replica_count) }),
-            .B5 => array.append_assume_capacity(.{ .replica = @intCast((view + 5) % replica_count) }),
+            .A0 => array
+                .append_assume_capacity(.{ .replica = @intCast((view + 0) % replica_count) }),
+            .B1 => array
+                .append_assume_capacity(.{ .replica = @intCast((view + 1) % replica_count) }),
+            .B2 => array
+                .append_assume_capacity(.{ .replica = @intCast((view + 2) % replica_count) }),
+            .B3 => array
+                .append_assume_capacity(.{ .replica = @intCast((view + 3) % replica_count) }),
+            .B4 => array
+                .append_assume_capacity(.{ .replica = @intCast((view + 4) % replica_count) }),
+            .B5 => array
+                .append_assume_capacity(.{ .replica = @intCast((view + 5) % replica_count) }),
+            .C0 => array.append_assume_capacity(.{ .client = t.cluster.clients[0].id }),
             .__, .R_, .S_, .C_ => {
                 if (selector == .__ or selector == .R_) {
                     for (t.cluster.replicas[0..replica_count], 0..) |_, i| {
@@ -1659,7 +1788,7 @@ const TestReplicas = struct {
             log.info("{}: restart replica", .{r});
             t.cluster.restart_replica(
                 r,
-                t.cluster.replicas[r].releases_bundled.const_slice(),
+                t.cluster.replicas[r].releases_bundled,
             ) catch |err| {
                 assert(t.replicas.count() == 1);
                 return switch (err) {
@@ -1683,7 +1812,7 @@ const TestReplicas = struct {
 
         for (t.replicas.const_slice()) |r| {
             log.info("{}: restart replica", .{r});
-            t.cluster.restart_replica(r, releases_bundled.const_slice()) catch |err| {
+            t.cluster.restart_replica(r, &releases_bundled) catch |err| {
                 assert(t.replicas.count() == 1);
                 return switch (err) {
                     error.WALCorrupt => return error.WALCorrupt,
@@ -1877,14 +2006,16 @@ const TestReplicas = struct {
                 }
             },
             .wal_prepare => |slot| {
-                const fault_offset = vsr.Zone.wal_prepares.offset(slot * constants.message_size_max);
+                const fault_offset = vsr.Zone.wal_prepares.offset(slot *
+                    constants.message_size_max);
                 const fault_sector = @divExact(fault_offset, constants.sector_size);
                 for (t.replicas.const_slice()) |r| {
                     t.cluster.storages[r].faults.set(fault_sector);
                 }
             },
             .client_reply => |slot| {
-                const fault_offset = vsr.Zone.client_replies.offset(slot * constants.message_size_max);
+                const fault_offset = vsr.Zone.client_replies.offset(slot *
+                    constants.message_size_max);
                 const fault_sector = @divExact(fault_offset, constants.sector_size);
                 for (t.replicas.const_slice()) |r| {
                     t.cluster.storages[r].faults.set(fault_sector);
@@ -2017,8 +2148,9 @@ const TestReplicas = struct {
         for (got.replicas.const_slice()) |replica_index| {
             const got_replica: *const Cluster.Replica = &got.cluster.replicas[replica_index];
 
+            const address_max = want.context.block_address_max();
             var address: u64 = 1;
-            while (address <= Storage.grid_blocks_max) : (address += 1) {
+            while (address <= address_max) : (address += 1) {
                 const address_free = want_replica.grid.free_set.is_free(address);
                 assert(address_free == got_replica.grid.free_set.is_free(address));
                 if (address_free) continue;
@@ -2083,6 +2215,20 @@ const TestClients = struct {
         var replies_total: usize = 0;
         for (t.clients.const_slice()) |c| replies_total += t.context.client_replies[c];
         return replies_total;
+    }
+
+    pub fn eviction_reason(t: *const TestClients) ?vsr.Header.Eviction.Reason {
+        var evicted_all: ?vsr.Header.Eviction.Reason = null;
+        for (t.clients.const_slice(), 0..) |r, i| {
+            const client_eviction_reason = t.cluster.client_eviction_reasons[r];
+            if (i == 0) {
+                assert(evicted_all == null);
+            } else {
+                assert(evicted_all == client_eviction_reason);
+            }
+            evicted_all = client_eviction_reason;
+        }
+        return evicted_all;
     }
 };
 

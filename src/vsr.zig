@@ -22,6 +22,7 @@ pub const time = @import("time.zig");
 pub const tracer = @import("tracer.zig");
 pub const stdx = @import("stdx.zig");
 pub const flags = @import("flags.zig");
+pub const grid = @import("vsr/grid.zig");
 pub const superblock = @import("vsr/superblock.zig");
 pub const aof = @import("aof.zig");
 pub const repl = @import("repl.zig");
@@ -30,11 +31,14 @@ pub const lsm = .{
     .tree = @import("lsm/tree.zig"),
     .groove = @import("lsm/groove.zig"),
     .forest = @import("lsm/forest.zig"),
+    .schema = @import("lsm/schema.zig"),
+    .composite_key = @import("lsm/composite_key.zig"),
 };
 pub const testing = .{
     .cluster = @import("testing/cluster.zig"),
     .random_int_exponential = @import("testing/fuzz.zig").random_int_exponential,
     .IdPermutation = @import("testing/id.zig").IdPermutation,
+    .parse_seed = @import("testing/fuzz.zig").parse_seed,
 };
 
 pub const ReplicaType = @import("vsr/replica.zig").ReplicaType;
@@ -67,107 +71,10 @@ pub const CountingAllocator = @import("counting_allocator.zig");
 /// For backwards compatibility through breaking changes (e.g. upgrading checksums/ciphers).
 pub const Version: u16 = 0;
 
-/// A ReleaseList is ordered from lowest-to-highest version.
-pub const ReleaseList = stdx.BoundedArray(Release, constants.vsr_releases_max);
-
-pub const Release = extern struct {
-    value: u32,
-
-    comptime {
-        assert(@sizeOf(Release) == 4);
-        assert(@sizeOf(Release) == @sizeOf(ReleaseTriple));
-        assert(stdx.no_padding(Release));
-    }
-
-    pub const zero = Release.from(.{ .major = 0, .minor = 0, .patch = 0 });
-    // Minimum is used for all development builds, to distinguish them from production deployments.
-    pub const minimum = Release.from(.{ .major = 0, .minor = 0, .patch = 1 });
-
-    pub fn from(release_triple: ReleaseTriple) Release {
-        return std.mem.bytesAsValue(Release, std.mem.asBytes(&release_triple)).*;
-    }
-
-    pub fn triple(release: *const Release) ReleaseTriple {
-        return std.mem.bytesAsValue(ReleaseTriple, std.mem.asBytes(release)).*;
-    }
-
-    pub fn format(
-        release: Release,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = fmt;
-        _ = options;
-        const release_triple = release.triple();
-        return writer.print("{}.{}.{}", .{
-            release_triple.major,
-            release_triple.minor,
-            release_triple.patch,
-        });
-    }
-
-    pub fn max(a: Release, b: Release) Release {
-        if (a.value > b.value) {
-            return a;
-        } else {
-            return b;
-        }
-    }
-};
-
-pub const ReleaseTriple = extern struct {
-    patch: u8,
-    minor: u8,
-    major: u16,
-
-    comptime {
-        assert(@sizeOf(ReleaseTriple) == 4);
-        assert(stdx.no_padding(ReleaseTriple));
-    }
-
-    pub fn parse(string: []const u8) error{InvalidRelease}!ReleaseTriple {
-        var parts = std.mem.splitScalar(u8, string, '.');
-        const major = parts.first();
-        const minor = parts.next() orelse return error.InvalidRelease;
-        const patch = parts.next() orelse return error.InvalidRelease;
-        if (parts.next() != null) return error.InvalidRelease;
-        return .{
-            .major = std.fmt.parseUnsigned(u16, major, 10) catch return error.InvalidRelease,
-            .minor = std.fmt.parseUnsigned(u8, minor, 10) catch return error.InvalidRelease,
-            .patch = std.fmt.parseUnsigned(u8, patch, 10) catch return error.InvalidRelease,
-        };
-    }
-};
-
-test "ReleaseTriple.parse" {
-    const tests = [_]struct {
-        string: []const u8,
-        result: error{InvalidRelease}!ReleaseTriple,
-    }{
-        // Valid:
-        .{ .string = "0.0.1", .result = .{ .major = 0, .minor = 0, .patch = 1 } },
-        .{ .string = "0.1.0", .result = .{ .major = 0, .minor = 1, .patch = 0 } },
-        .{ .string = "1.0.0", .result = .{ .major = 1, .minor = 0, .patch = 0 } },
-
-        // Invalid characters:
-        .{ .string = "v0.0.1", .result = error.InvalidRelease },
-        .{ .string = "0.0.1v", .result = error.InvalidRelease },
-        // Invalid separators:
-        .{ .string = "0.0.0.1", .result = error.InvalidRelease },
-        .{ .string = "0..0.1", .result = error.InvalidRelease },
-        // Overflow (and near-overflow):
-        .{ .string = "0.0.255", .result = .{ .major = 0, .minor = 0, .patch = 255 } },
-        .{ .string = "0.0.256", .result = error.InvalidRelease },
-        .{ .string = "0.255.0", .result = .{ .major = 0, .minor = 255, .patch = 0 } },
-        .{ .string = "0.256.0", .result = error.InvalidRelease },
-        .{ .string = "65535.0.0", .result = .{ .major = 65535, .minor = 0, .patch = 0 } },
-        .{ .string = "65536.0.0", .result = error.InvalidRelease },
-    };
-    for (tests) |t| {
-        try std.testing.expectEqualDeep(ReleaseTriple.parse(t.string), t.result);
-    }
-}
+pub const multiversioning = @import("multiversioning.zig");
+pub const ReleaseList = multiversioning.ReleaseList;
+pub const Release = multiversioning.Release;
+pub const ReleaseTriple = multiversioning.ReleaseTriple;
 
 pub const ProcessType = enum { replica, client };
 
@@ -311,6 +218,11 @@ pub const Command = enum(u8) {
 
     request_sync_checkpoint = 21,
     sync_checkpoint = 22,
+
+    // A reserved command for the new state sync protocol. At the moment, replica ignores this
+    // command (as opposed to panicking on an unknown command), to allow the next release to send
+    // both versions of StartView.
+    start_view2 = 23,
 
     comptime {
         for (std.enums.values(Command), 0..) |result, index| {
@@ -886,26 +798,22 @@ test "exponential_backoff_with_jitter" {
 /// This does require that the user specify the same order to all replicas.
 /// The caller owns the memory of the returned slice of addresses.
 pub fn parse_addresses(
-    allocator: std.mem.Allocator,
     raw: []const u8,
-    address_limit: usize,
+    out_buffer: []std.net.Address,
 ) ![]std.net.Address {
     const address_count = std.mem.count(u8, raw, ",") + 1;
-    if (address_count > address_limit) return error.AddressLimitExceeded;
-
-    const addresses = try allocator.alloc(std.net.Address, address_count);
-    errdefer allocator.free(addresses);
+    if (address_count > out_buffer.len) return error.AddressLimitExceeded;
 
     var index: usize = 0;
     var comma_iterator = std.mem.split(u8, raw, ",");
     while (comma_iterator.next()) |raw_address| : (index += 1) {
-        assert(index < address_limit);
+        assert(index < out_buffer.len);
         if (raw_address.len == 0) return error.AddressHasTrailingComma;
-        addresses[index] = try parse_address_and_port(raw_address);
+        out_buffer[index] = try parse_address_and_port(raw_address);
     }
     assert(index == address_count);
 
-    return addresses;
+    return out_buffer[0..address_count];
 }
 
 pub fn parse_address_and_port(string: []const u8) !std.net.Address {
@@ -1051,9 +959,9 @@ test parse_addresses {
         .{ .raw = "1.2.3.4:5,2.3.4.5:65536", .err = error.PortOverflow },
     };
 
+    var buffer: [3]std.net.Address = undefined;
     for (vectors_positive) |vector| {
-        const addresses_actual = try parse_addresses(std.testing.allocator, vector.raw, 3);
-        defer std.testing.allocator.free(addresses_actual);
+        const addresses_actual = try parse_addresses(vector.raw, &buffer);
 
         try std.testing.expectEqual(addresses_actual.len, vector.addresses.len);
         for (vector.addresses, 0..) |address_expect, i| {
@@ -1068,7 +976,7 @@ test parse_addresses {
     for (vectors_negative) |vector| {
         try std.testing.expectEqual(
             vector.err,
-            parse_addresses(std.testing.allocator, vector.raw, 2),
+            parse_addresses(vector.raw, buffer[0..2]),
         );
     }
 }
@@ -1084,14 +992,16 @@ test "parse_addresses: fuzz" {
     const random = prng.random();
 
     var input_max: [len_max]u8 = .{0} ** len_max;
+    var buffer: [3]std.net.Address = undefined;
     for (0..test_count) |_| {
         const len = random.uintAtMost(usize, len_max);
         const input = input_max[0..len];
         for (input) |*c| {
             c.* = alphabet[random.uintAtMost(usize, alphabet.len)];
         }
-        if (parse_addresses(std.testing.allocator, input, 3)) |addresses| {
-            std.testing.allocator.free(addresses);
+        if (parse_addresses(input, &buffer)) |addresses| {
+            assert(addresses.len > 0);
+            assert(addresses.len <= 3);
         } else |_| {}
     }
 }
@@ -1145,6 +1055,7 @@ pub fn quorums(replica_count: u8) struct {
 
     const quorum_majority =
         stdx.div_ceil(replica_count, 2) + @intFromBool(@mod(replica_count, 2) == 0);
+    assert(quorum_majority <= replica_count);
     assert(quorum_majority > @divFloor(replica_count, 2));
 
     // A majority quorum (i.e. `max(quorum_commit, quorum_view_change)`) is required
@@ -1154,6 +1065,7 @@ pub fn quorums(replica_count: u8) struct {
     // upgrading all replicas together would be a mistake (leading to replicas lagging and needing
     // to state sync). The -1 allows for a single broken/recovering replica before the upgrade.
     const quorum_upgrade = @max(replica_count - 1, quorum_majority);
+    assert(quorum_upgrade <= replica_count);
     assert(quorum_upgrade >= quorum_replication);
     assert(quorum_upgrade >= quorum_view_change);
 
@@ -1543,20 +1455,22 @@ const ViewChangeHeadersArray = struct {
     }
 };
 
-/// For a replica with journal_slot_count=9, lsm_batch_multiple=2, pipeline_prepare_queue_max=1, and
-/// checkpoint_interval = journal_slot_count - (lsm_batch_multiple + pipeline_prepare_queue_max) = 6
+/// For a replica with journal_slot_count=10, lsm_batch_multiple=2, pipeline_prepare_queue_max=2,
+/// and checkpoint_interval=4, which can be computed as follows:
+/// journal_slot_count - (lsm_batch_multiple + 2 * pipeline_prepare_queue_max) = 4
 ///
-///   checkpoint() call           0   1   2   3
-///   op_checkpoint               0   5  11  17
-///   op_checkpoint_next          5  11  17  23
-///   op_checkpoint_next_trigger  7  13  19  25
+///   checkpoint() call           0   1   2   3   4
+///   op_checkpoint               0   3   7  11  15
+///   op_checkpoint_next          3   7  11  15  19
+///   op_checkpoint_next_trigger  5   9  13  17  21
 ///
 ///     commit log (ops)           │ write-ahead log (slots)
-///     0   4   8   2   6   0   4  │  0  -  -  -  4  -  -  -  8
-///   0 ─────✓·%                   │[ 0  1  2  3  4  ✓] 6  %  R
-///   1 ───────────✓·%             │  9 10  ✓]12  %  5[ 6  7  8
-///   2 ─────────────────✓·%       │ 18  % 11[12 13 14 15 16  ✓]
-///   3 ───────────────────────✓·% │[18 19 20 21 22  ✓]24  % 17
+///     0   4   8   2   6   0   4  │  0  -  -  -  4  -  -  -  -  9
+///   0 ───✓·%                     │[ 0  1  2  ✓] 4  %  R  R  R  R
+///   1 ───────✓·%                 │  0  1  2  3[ 4  5  6  ✓] 8  %
+///   2 ───────────✓·%             │  10 ✓] 12 %  4  5  6  7[ 8  %
+///   3 ───────────────✓·%         │  10 11[12 13 14 ✓] 16 %  8  9
+///   4 ───────────────────✓·%     │  20 %  12 13 14 15[16 17 18 19]
 ///
 /// Legend:
 ///
@@ -1621,6 +1535,105 @@ pub const Checkpoint = struct {
         return op == 0 or (op + 1) % constants.lsm_batch_multiple == 0;
     }
 };
+
+test "Checkpoint ops diagram" {
+    const Snap = @import("./testing/snaptest.zig").Snap;
+    const snap = Snap.snap;
+
+    var string = std.ArrayList(u8).init(std.testing.allocator);
+    defer string.deinit();
+
+    var string2 = std.ArrayList(u8).init(std.testing.allocator);
+    defer string2.deinit();
+
+    try string.writer().print(
+        \\journal_slot_count={[journal_slot_count]}
+        \\lsm_batch_multiple={[lsm_batch_multiple]}
+        \\pipeline_prepare_queue_max={[pipeline_prepare_queue_max]}
+        \\vsr_checkpoint_interval={[vsr_checkpoint_interval]}
+        \\
+        \\
+    , .{
+        .journal_slot_count = constants.journal_slot_count,
+        .lsm_batch_multiple = constants.lsm_batch_multiple,
+        .pipeline_prepare_queue_max = constants.pipeline_prepare_queue_max,
+        .vsr_checkpoint_interval = constants.vsr_checkpoint_interval,
+    });
+
+    var checkpoint_prev: u64 = 0;
+    var checkpoint_next: u64 = 0;
+    var checkpoint_count: u32 = 0;
+    for (0..constants.journal_slot_count * 10) |op| {
+        const last_beat = op % constants.lsm_batch_multiple == constants.lsm_batch_multiple - 1;
+        const last_slot = (op % constants.journal_slot_count) + 1 == constants.journal_slot_count;
+
+        const op_type: enum {
+            normal,
+            checkpoint,
+            checkpoint_trigger,
+            checkpoint_prepare_max,
+        } = op_type: {
+            if (op == checkpoint_next) break :op_type .checkpoint;
+            if (checkpoint_prev != 0) {
+                if (op == Checkpoint.trigger_for_checkpoint(checkpoint_prev).?) {
+                    break :op_type .checkpoint_trigger;
+                }
+
+                if (op == Checkpoint.prepare_max_for_checkpoint(checkpoint_prev).?) {
+                    break :op_type .checkpoint_prepare_max;
+                }
+            }
+            break :op_type .normal;
+        };
+
+        // Marker for tidy.zig to ignore the long lines.
+        if (op % constants.journal_slot_count == 0) try string.appendSlice("OPS: ");
+
+        try string.writer().print("{s}{:_>3}{s}", .{
+            switch (op_type) {
+                .normal => " ",
+                .checkpoint => if (checkpoint_count % 2 == 0) "[" else "{",
+                .checkpoint_trigger => "<",
+                .checkpoint_prepare_max => " ",
+            },
+            op,
+            switch (op_type) {
+                .normal => if (last_slot) "" else " ",
+                .checkpoint => if (last_slot) "" else " ",
+                .checkpoint_trigger => ">",
+                .checkpoint_prepare_max => if (checkpoint_count % 2 == 0) "]" else "}",
+            },
+        });
+
+        if (last_slot) try string.append('\n');
+        if (!last_slot and last_beat) try string.append(' ');
+
+        if (op_type == .checkpoint) {
+            checkpoint_prev = checkpoint_next;
+            checkpoint_next = Checkpoint.checkpoint_after(checkpoint_prev);
+        }
+        checkpoint_count += @intFromBool(op == checkpoint_prev);
+    }
+
+    try snap(@src(),
+        \\journal_slot_count=32
+        \\lsm_batch_multiple=4
+        \\pipeline_prepare_queue_max=4
+        \\vsr_checkpoint_interval=20
+        \\
+        \\OPS: [__0  __1  __2  __3   __4  __5  __6  __7   __8  __9  _10  _11   _12  _13  _14  _15   _16  _17  _18 {_19   _20  _21  _22 <_23>  _24  _25  _26  _27]  _28  _29  _30  _31
+        \\OPS:  _32  _33  _34  _35   _36  _37  _38 [_39   _40  _41  _42 <_43>  _44  _45  _46  _47}  _48  _49  _50  _51   _52  _53  _54  _55   _56  _57  _58 {_59   _60  _61  _62 <_63>
+        \\OPS:  _64  _65  _66  _67]  _68  _69  _70  _71   _72  _73  _74  _75   _76  _77  _78 [_79   _80  _81  _82 <_83>  _84  _85  _86  _87}  _88  _89  _90  _91   _92  _93  _94  _95
+        \\OPS:  _96  _97  _98 {_99   100  101  102 <103>  104  105  106  107]  108  109  110  111   112  113  114  115   116  117  118 [119   120  121  122 <123>  124  125  126  127}
+        \\OPS:  128  129  130  131   132  133  134  135   136  137  138 {139   140  141  142 <143>  144  145  146  147]  148  149  150  151   152  153  154  155   156  157  158 [159
+        \\OPS:  160  161  162 <163>  164  165  166  167}  168  169  170  171   172  173  174  175   176  177  178 {179   180  181  182 <183>  184  185  186  187]  188  189  190  191
+        \\OPS:  192  193  194  195   196  197  198 [199   200  201  202 <203>  204  205  206  207}  208  209  210  211   212  213  214  215   216  217  218 {219   220  221  222 <223>
+        \\OPS:  224  225  226  227]  228  229  230  231   232  233  234  235   236  237  238 [239   240  241  242 <243>  244  245  246  247}  248  249  250  251   252  253  254  255
+        \\OPS:  256  257  258 {259   260  261  262 <263>  264  265  266  267]  268  269  270  271   272  273  274  275   276  277  278 [279   280  281  282 <283>  284  285  286  287}
+        \\OPS:  288  289  290  291   292  293  294  295   296  297  298 {299   300  301  302 <303>  304  305  306  307]  308  309  310  311   312  313  314  315   316  317  318 [319
+        \\
+    ).diff(string.items);
+}
 
 pub const Snapshot = struct {
     /// A table with TableInfo.snapshot_min=S was written during some commit with op<S.

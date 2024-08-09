@@ -141,6 +141,8 @@ const ConfigProcess = struct {
     grid_scrubber_interval_ms_min: usize = std.time.ms_per_s / 20,
     grid_scrubber_interval_ms_max: usize = std.time.ms_per_s * 10,
     aof_recovery: bool = false,
+    multiversion_binary_platform_size_max: u64 = 64 * 1024 * 1024,
+    multiversion_poll_interval_ms: u64 = 1000,
 };
 
 /// Configurations which are tunable per-cluster.
@@ -165,17 +167,18 @@ const ConfigCluster = struct {
     lsm_batch_multiple: comptime_int = 32,
     lsm_snapshots_max: usize = 32,
     lsm_manifest_compact_extra_blocks: comptime_int = 1,
+    lsm_table_coalescing_threshold_percent: comptime_int = 50,
     vsr_releases_max: usize = 64,
 
-    // Minimal value.
+    /// Minimal value.
     // TODO(batiati): Maybe this constant should be derived from `grid_iops_read_max`,
     // since each scan can read from `lsm_levels` in parallel.
-    lsm_scans_max: comptime_int = 2,
+    lsm_scans_max: comptime_int = 5,
 
-    /// The WAL requires at least two sectors of redundant headers — otherwise we could lose them all to
-    /// a single torn write. A replica needs at least one valid redundant header to determine an
-    /// (untrusted) maximum op in recover_torn_prepare(), without which it cannot truncate a torn
-    /// prepare.
+    /// The WAL requires at least two sectors of redundant headers — otherwise we could lose them
+    /// all to a single torn write. A replica needs at least one valid redundant header to
+    /// determine an (untrusted) maximum op in recover_torn_prepare(), without which it cannot
+    /// truncate a torn prepare.
     pub const journal_slot_count_min = 2 * @divExact(sector_size, @sizeOf(vsr.Header));
 
     pub const clients_max_min = 1;
@@ -259,10 +262,11 @@ pub const configs = struct {
     };
 
     /// Minimal test configuration — small WAL, small grid block size, etc.
-    /// Not suitable for production, but good for testing code that would be otherwise hard to reach.
+    /// Not suitable for production, but good for testing code that would be otherwise hard to
+    /// reach.
     pub const test_min = Config{
         .process = .{
-            .storage_size_limit_max = 200 * 1024 * 1024,
+            .storage_size_limit_max = 1 * 1024 * 1024 * 1024,
             .direct_io = false,
             .cache_accounts_size_default = @sizeOf(vsr.tigerbeetle.Account) * 256,
             .cache_transfers_size_default = 0,
@@ -288,15 +292,9 @@ pub const configs = struct {
             .lsm_growth_factor = 4,
             // (This is higher than the production default value because the block size is smaller.)
             .lsm_manifest_compact_extra_blocks = 5,
+            // (We need to fuzz more scans merge than in production.)
+            .lsm_scans_max = 12,
         },
-    };
-
-    /// Mostly-minimal configuration, with a higher storage limit to ensure that the fuzzers are
-    /// able to max out the LSM levels.
-    pub const fuzz_min = config: {
-        var base = test_min;
-        base.process.storage_size_limit_max = 1 * 1024 * 1024 * 1024;
-        break :config base;
     };
 
     const default = if (@hasDecl(root, "tigerbeetle_config"))

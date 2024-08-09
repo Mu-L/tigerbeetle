@@ -8,6 +8,7 @@ const stdx = @import("../stdx.zig");
 const constants = @import("../constants.zig");
 
 const TableType = @import("table.zig").TableType;
+const TimestampRange = @import("timestamp_range.zig").TimestampRange;
 const TreeType = @import("tree.zig").TreeType;
 const GridType = @import("../vsr/grid.zig").GridType;
 const CompositeKeyType = @import("composite_key.zig").CompositeKeyType;
@@ -174,8 +175,10 @@ pub fn GrooveType(
         // See if we should ignore this field from the options.
         //
         // By default, we ignore the "timestamp" field since it's a special identifier.
-        // Since the "timestamp" is ignored by default, it shouldn't be provided in groove_options.ignored.
-        comptime var ignored = mem.eql(u8, field.name, "timestamp") or mem.eql(u8, field.name, "id");
+        // Since the "timestamp" is ignored by default, it shouldn't be provided
+        // in groove_options.ignored.
+        comptime var ignored =
+            mem.eql(u8, field.name, "timestamp") or mem.eql(u8, field.name, "id");
         for (groove_options.ignored) |ignored_field_name| {
             comptime assert(!std.mem.eql(u8, ignored_field_name, "timestamp"));
             comptime assert(!std.mem.eql(u8, ignored_field_name, "id"));
@@ -293,7 +296,7 @@ pub fn GrooveType(
             .is_tuple = false,
         },
     });
-    const IndexTreeOptions = @Type(.{
+    const _IndexTreeOptions = @Type(.{
         .Struct = .{
             .layout = .auto,
             .fields = index_options_fields,
@@ -313,7 +316,7 @@ pub fn GrooveType(
         std.meta.fields(@TypeOf(groove_options.derived)).len;
 
     assert(indexes_count_actual == indexes_count_expect);
-    assert(indexes_count_actual == std.meta.fields(IndexTreeOptions).len);
+    assert(indexes_count_actual == std.meta.fields(_IndexTreeOptions).len);
 
     // Generate a helper function for interacting with an Index field type.
     const IndexTreeFieldHelperType = struct {
@@ -464,6 +467,8 @@ pub fn GrooveType(
         objects_cache: ObjectsCache,
 
         scan_builder: ScanBuilder,
+
+        pub const IndexTreeOptions = _IndexTreeOptions;
 
         pub const Options = struct {
             /// The maximum number of objects that might be prefetched and not modified by a batch.
@@ -789,7 +794,7 @@ pub fn GrooveType(
         pub const PrefetchWorker = struct {
             // Since lookup contexts are used one at a time, it's safe to access
             // the union's fields and reuse the same memory for all context instances.
-            // Can't use extern/packed union as the LookupContextes aren't ABI compliant.
+            // Can't use extern/packed union as the LookupContexts aren't ABI compliant.
             const LookupContext = union(enum) {
                 id: if (has_id) IdTree.LookupContext else void,
                 object: ObjectTree.LookupContext,
@@ -910,6 +915,8 @@ pub fn GrooveType(
         /// Insert the value into the objects tree and associated index trees. It's up to the
         /// caller to ensure it doesn't already exist.
         pub fn insert(groove: *Groove, object: *const Object) void {
+            assert(object.timestamp >= TimestampRange.timestamp_min);
+            assert(object.timestamp <= TimestampRange.timestamp_max);
             if (constants.verify) {
                 assert(!groove.objects_cache.has(@field(object, primary_field)));
             }
@@ -960,6 +967,8 @@ pub fn GrooveType(
 
             if (has_id) assert(old.id == new.id);
             assert(old.timestamp == new.timestamp);
+            assert(new.timestamp >= TimestampRange.timestamp_min);
+            assert(new.timestamp <= TimestampRange.timestamp_max);
 
             // The ID can't change, so no need to update the ID tree. Update the object tree entry
             // if any of the fields (even ignored) are different. We assume the caller will pass in
@@ -1013,6 +1022,8 @@ pub fn GrooveType(
             assert(false);
 
             const object = groove.objects_cache.get(key).?;
+            assert(object.timestamp >= TimestampRange.timestamp_min);
+            assert(object.timestamp <= TimestampRange.timestamp_max);
 
             groove.objects.remove(object);
             if (has_id) {
@@ -1129,7 +1140,8 @@ pub fn GrooveType(
 
 test "Groove" {
     const Transfer = @import("../tigerbeetle.zig").Transfer;
-    const Storage = @import("../storage.zig").Storage;
+    const IO = @import("../io.zig").IO;
+    const Storage = @import("../storage.zig").Storage(IO);
 
     const Groove = GrooveType(
         Storage,

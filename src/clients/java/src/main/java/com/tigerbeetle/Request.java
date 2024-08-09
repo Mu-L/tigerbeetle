@@ -35,6 +35,8 @@ abstract class Request<TResponse extends Batch> {
         LOOKUP_TRANSFERS(132),
         GET_ACCOUNT_TRANSFERS(133),
         GET_ACCOUNT_BALANCES(134),
+        QUERY_ACCOUNTS(135),
+        QUERY_TRANSFERS(136),
 
         ECHO_ACCOUNTS(129),
         ECHO_TRANSFERS(130);
@@ -46,7 +48,7 @@ abstract class Request<TResponse extends Batch> {
         }
     }
 
-    // Used ony by the JNI side
+    // Used only by the JNI side
     @Native
     private final ByteBuffer sendBuffer;
 
@@ -76,7 +78,7 @@ abstract class Request<TResponse extends Batch> {
             throw new IllegalArgumentException("Empty batch");
     }
 
-    public void beginRequest() throws ConcurrencyExceededException {
+    public void beginRequest() {
         nativeClient.submit(this);
     }
 
@@ -102,7 +104,11 @@ abstract class Request<TResponse extends Batch> {
 
             } else if (status != PacketStatus.Ok.value) {
 
-                exception = new RequestException(status);
+                if (status == PacketStatus.ClientShutdown.value) {
+                    exception = new IllegalStateException("Client is closed");
+                } else {
+                    exception = new RequestException(status);
+                }
 
             } else {
 
@@ -146,6 +152,18 @@ abstract class Request<TResponse extends Batch> {
                     case GET_ACCOUNT_BALANCES: {
                         result = replyBuffer == null ? AccountBalanceBatch.EMPTY
                                 : new AccountBalanceBatch(ByteBuffer.wrap(replyBuffer));
+                        break;
+                    }
+
+                    case QUERY_ACCOUNTS: {
+                        result = replyBuffer == null ? AccountBatch.EMPTY
+                                : new AccountBatch(ByteBuffer.wrap(replyBuffer));
+                        break;
+                    }
+
+                    case QUERY_TRANSFERS: {
+                        result = replyBuffer == null ? TransferBatch.EMPTY
+                                : new TransferBatch(ByteBuffer.wrap(replyBuffer));
                         break;
                     }
 

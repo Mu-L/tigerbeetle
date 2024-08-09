@@ -94,6 +94,18 @@ public enum AccountFilterFlags : uint
 
 }
 
+[Flags]
+public enum QueryFilterFlags : uint
+{
+    None = 0,
+
+    /// <summary>
+    /// https://docs.tigerbeetle.com/reference/query-filter#flagsreversed
+    /// </summary>
+    Reversed = 1 << 0,
+
+}
+
 [StructLayout(LayoutKind.Sequential, Size = SIZE)]
 public struct Account
 {
@@ -741,7 +753,10 @@ public struct AccountFilter
         public void SetData(byte[] value)
         {
             if (value == null) throw new ArgumentNullException(nameof(value));
-            if (value.Length != SIZE) throw new ArgumentException("Expected a byte[" + SIZE + "] array", nameof(value));
+            if (value.Length != SIZE)
+            {
+                throw new ArgumentException("Expected a byte[" + SIZE + "] array", nameof(value));
+            }
 
             fixed (void* ptr = raw)
             {
@@ -817,7 +832,10 @@ public struct AccountBalance
         public void SetData(byte[] value)
         {
             if (value == null) throw new ArgumentNullException(nameof(value));
-            if (value.Length != SIZE) throw new ArgumentException("Expected a byte[" + SIZE + "] array", nameof(value));
+            if (value.Length != SIZE)
+            {
+                throw new ArgumentException("Expected a byte[" + SIZE + "] array", nameof(value));
+            }
 
             fixed (void* ptr = raw)
             {
@@ -870,6 +888,113 @@ public struct AccountBalance
 
 }
 
+[StructLayout(LayoutKind.Sequential, Size = SIZE)]
+public struct QueryFilter
+{
+    public const int SIZE = 64;
+
+    [StructLayout(LayoutKind.Sequential, Size = SIZE)]
+    private unsafe struct ReservedData
+    {
+        public const int SIZE = 6;
+
+        private fixed byte raw[SIZE];
+
+        public byte[] GetData()
+        {
+            fixed (void* ptr = raw)
+            {
+                return new ReadOnlySpan<byte>(ptr, SIZE).ToArray();
+            }
+        }
+
+        public void SetData(byte[] value)
+        {
+            if (value == null) throw new ArgumentNullException(nameof(value));
+            if (value.Length != SIZE)
+            {
+                throw new ArgumentException("Expected a byte[" + SIZE + "] array", nameof(value));
+            }
+
+            fixed (void* ptr = raw)
+            {
+                value.CopyTo(new Span<byte>(ptr, SIZE));
+            }
+        }
+    }
+
+    private UInt128 userData128;
+
+    private ulong userData64;
+
+    private uint userData32;
+
+    private uint ledger;
+
+    private ushort code;
+
+    private ReservedData reserved;
+
+    private ulong timestampMin;
+
+    private ulong timestampMax;
+
+    private uint limit;
+
+    private QueryFilterFlags flags;
+
+    /// <summary>
+    /// https://docs.tigerbeetle.com/reference/query-filter#user_data_128
+    /// </summary>
+    public UInt128 UserData128 { get => userData128; set => userData128 = value; }
+
+    /// <summary>
+    /// https://docs.tigerbeetle.com/reference/query-filter#user_data_64
+    /// </summary>
+    public ulong UserData64 { get => userData64; set => userData64 = value; }
+
+    /// <summary>
+    /// https://docs.tigerbeetle.com/reference/query-filter#user_data_32
+    /// </summary>
+    public uint UserData32 { get => userData32; set => userData32 = value; }
+
+    /// <summary>
+    /// https://docs.tigerbeetle.com/reference/query-filter#ledger
+    /// </summary>
+    public uint Ledger { get => ledger; set => ledger = value; }
+
+    /// <summary>
+    /// https://docs.tigerbeetle.com/reference/query-filter#code
+    /// </summary>
+    public ushort Code { get => code; set => code = value; }
+
+    /// <summary>
+    /// https://docs.tigerbeetle.com/reference/query-filter#reserved
+    /// </summary>
+    internal byte[] Reserved { get => reserved.GetData(); set => reserved.SetData(value); }
+
+    /// <summary>
+    /// https://docs.tigerbeetle.com/reference/query-filter#timestamp_min
+    /// </summary>
+    public ulong TimestampMin { get => timestampMin; set => timestampMin = value; }
+
+    /// <summary>
+    /// https://docs.tigerbeetle.com/reference/query-filter#timestamp_max
+    /// </summary>
+    public ulong TimestampMax { get => timestampMax; set => timestampMax = value; }
+
+    /// <summary>
+    /// https://docs.tigerbeetle.com/reference/query-filter#limit
+    /// </summary>
+    public uint Limit { get => limit; set => limit = value; }
+
+    /// <summary>
+    /// https://docs.tigerbeetle.com/reference/query-filter#flags
+    /// </summary>
+    public QueryFilterFlags Flags { get => flags; set => flags = value; }
+
+}
+
 public enum InitializationStatus : uint
 {
     Success = 0,
@@ -882,11 +1007,9 @@ public enum InitializationStatus : uint
 
     AddressLimitExceeded = 4,
 
-    ConcurrencyMaxInvalid = 5,
+    SystemResources = 5,
 
-    SystemResources = 6,
-
-    NetworkSubsystem = 7,
+    NetworkSubsystem = 6,
 
 }
 
@@ -896,19 +1019,11 @@ public enum PacketStatus : byte
 
     TooMuchData = 1,
 
-    InvalidOperation = 2,
+    ClientShutdown = 2,
 
-    InvalidDataSize = 3,
+    InvalidOperation = 3,
 
-}
-
-internal enum PacketAcquireStatus : uint
-{
-    Ok = 0,
-
-    ConcurrencyMaxExceeded = 1,
-
-    Shutdown = 2,
+    InvalidDataSize = 4,
 
 }
 
@@ -927,6 +1042,10 @@ internal enum TBOperation : byte
     GetAccountTransfers = 133,
 
     GetAccountBalances = 134,
+
+    QueryAccounts = 135,
+
+    QueryTransfers = 136,
 
 }
 
@@ -953,7 +1072,10 @@ internal unsafe struct TBPacket
         public void SetData(byte[] value)
         {
             if (value == null) throw new ArgumentNullException(nameof(value));
-            if (value.Length != SIZE) throw new ArgumentException("Expected a byte[" + SIZE + "] array", nameof(value));
+            if (value.Length != SIZE)
+            {
+                throw new ArgumentException("Expected a byte[" + SIZE + "] array", nameof(value));
+            }
 
             fixed (void* ptr = raw)
             {
@@ -994,7 +1116,6 @@ internal static class TBClient
         UInt128Extensions.UnsafeU128 cluster_id,
         byte* address_ptr,
         uint address_len,
-        uint num_packets,
         IntPtr on_completion_ctx,
         delegate* unmanaged[Cdecl]<IntPtr, IntPtr, TBPacket*, byte*, uint, void> on_completion_fn
     );
@@ -1005,21 +1126,8 @@ internal static class TBClient
         UInt128Extensions.UnsafeU128 cluster_id,
         byte* address_ptr,
         uint address_len,
-        uint num_packets,
         IntPtr on_completion_ctx,
         delegate* unmanaged[Cdecl]<IntPtr, IntPtr, TBPacket*, byte*, uint, void> on_completion_fn
-    );
-
-    [DllImport(LIB_NAME, CallingConvention = CallingConvention.Cdecl)]
-    public static unsafe extern PacketAcquireStatus tb_client_acquire_packet(
-        IntPtr client,
-        TBPacket** out_packet
-    );
-
-    [DllImport(LIB_NAME, CallingConvention = CallingConvention.Cdecl)]
-    public static unsafe extern void tb_client_release_packet(
-        IntPtr client,
-        TBPacket* packet
     );
 
     [DllImport(LIB_NAME, CallingConvention = CallingConvention.Cdecl)]

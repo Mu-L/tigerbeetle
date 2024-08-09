@@ -72,13 +72,9 @@ pub fn fatal(comptime fmt_string: []const u8, args: anytype) noreturn {
 ///
 /// If `pub const help` declaration is present, it is used to implement `-h/--help` argument.
 pub fn parse(args: *std.process.ArgIterator, comptime CliArgs: type) CliArgs {
+    comptime assert(CliArgs != void);
     assert(args.skip()); // Discard executable name.
-
-    return switch (@typeInfo(CliArgs)) {
-        .Union => parse_commands(args, CliArgs),
-        .Struct => parse_flags(args, CliArgs),
-        else => unreachable,
-    };
+    return parse_flags(args, CliArgs);
 }
 
 fn parse_commands(args: *std.process.ArgIterator, comptime Commands: type) Commands {
@@ -115,6 +111,10 @@ fn parse_flags(args: *std.process.ArgIterator, comptime Flags: type) Flags {
             fatal("unexpected argument: '{s}'", .{arg});
         }
         return {};
+    }
+
+    if (@typeInfo(Flags) == .Union) {
+        return parse_commands(args, Flags);
     }
 
     assert(@typeInfo(Flags) == .Struct);
@@ -606,6 +606,15 @@ pub usingnamespace if (@import("root") != @This()) struct {
             optional: ?[]const u8 = null,
             choice: enum { marlowe, shakespeare } = .marlowe,
         },
+        subcommand: union(enum) {
+            pub const help =
+                \\subcommand help
+                \\
+            ;
+
+            c1: struct { a: bool = false },
+            c2: struct { b: bool = false },
+        },
 
         pub const help =
             \\ flags-test-program [flags]
@@ -651,6 +660,12 @@ pub usingnamespace if (@import("root") != @This()) struct {
                 try out_stream.print("optional: {?s}\n", .{values.optional});
                 try out_stream.print("choice: {?s}\n", .{@tagName(values.choice)});
             },
+            .subcommand => |values| {
+                switch (values) {
+                    .c1 => |c1| try out_stream.print("c1.a: {}\n", .{c1.a}),
+                    .c2 => |c2| try out_stream.print("c2.b: {}\n", .{c2.b}),
+                }
+            },
         }
     }
 };
@@ -665,7 +680,7 @@ test "flags" {
         gpa: std.mem.Allocator,
         tmp_dir: std.testing.TmpDir,
         output_buf: std.ArrayList(u8),
-        flags_exe_buf: *[std.fs.MAX_PATH_BYTES]u8,
+        flags_exe_buf: *[std.fs.max_path_bytes]u8,
         flags_exe: []const u8,
 
         fn init(gpa: std.mem.Allocator) !T {
@@ -677,10 +692,17 @@ test "flags" {
             var tmp_dir = std.testing.tmpDir(.{});
             errdefer tmp_dir.cleanup();
 
+            const tmp_dir_path = try std.fs.path.join(gpa, &.{
+                ".zig-cache",
+                "tmp",
+                &tmp_dir.sub_path,
+            });
+            defer gpa.free(tmp_dir_path);
+
             const output_buf = std.ArrayList(u8).init(gpa);
             errdefer output_buf.deinit();
 
-            const flags_exe_buf = try gpa.create([std.fs.MAX_PATH_BYTES]u8);
+            const flags_exe_buf = try gpa.create([std.fs.max_path_bytes]u8);
             errdefer gpa.destroy(flags_exe_buf);
 
             { // Compile this file as an executable!
@@ -689,7 +711,7 @@ test "flags" {
                 const exec_result = try std.process.Child.run(.{
                     .allocator = gpa,
                     .argv = &argv,
-                    .cwd_dir = tmp_dir.dir,
+                    .cwd = tmp_dir_path,
                 });
                 defer gpa.free(exec_result.stdout);
                 defer gpa.free(exec_result.stderr);
@@ -773,7 +795,7 @@ test "flags" {
     try t.check(&.{}, snap(@src(),
         \\status: 1
         \\stderr:
-        \\error: subcommand required, expected 'empty', 'prefix', 'pos', 'required', or 'values'
+        \\error: subcommand required, expected 'empty', 'prefix', 'pos', 'required', 'values', or 'subcommand'
         \\
     ));
 
@@ -1181,6 +1203,45 @@ test "flags" {
         \\status: 1
         \\stderr:
         \\error: --choice: expected one of 'marlowe' or 'shakespeare', but found 'molière'
+        \\
+    ));
+
+    try t.check(&.{"subcommand"}, snap(@src(),
+        \\status: 1
+        \\stderr:
+        \\error: subcommand required, expected 'c1' or 'c2'
+        \\
+    ));
+    try t.check(&.{ "subcommand", "c1", "--a" }, snap(@src(),
+        \\stdout:
+        \\c1.a: true
+        \\
+    ));
+    try t.check(&.{ "subcommand", "c2", "--b" }, snap(@src(),
+        \\stdout:
+        \\c2.b: true
+        \\
+    ));
+    try t.check(&.{ "subcommand", "c1", "--b" }, snap(@src(),
+        \\status: 1
+        \\stderr:
+        \\error: unexpected argument: '--b'
+        \\
+    ));
+    try t.check(&.{ "subcommand", "c2", "--a" }, snap(@src(),
+        \\status: 1
+        \\stderr:
+        \\error: unexpected argument: '--a'
+        \\
+    ));
+    try t.check(&.{ "subcommand", "--help" }, snap(@src(),
+        \\stdout:
+        \\subcommand help
+        \\
+    ));
+    try t.check(&.{ "subcommand", "-h" }, snap(@src(),
+        \\stdout:
+        \\subcommand help
         \\
     ));
 }

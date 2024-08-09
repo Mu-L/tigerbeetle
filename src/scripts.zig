@@ -21,14 +21,52 @@ const cfo = @import("./scripts/cfo.zig");
 const ci = @import("./scripts/ci.zig");
 const release = @import("./scripts/release.zig");
 const devhub = @import("./scripts/devhub.zig");
+const kcov = @import("./scripts/kcov.zig");
 const changelog = @import("./scripts/changelog.zig");
+const upgrader = @import("./scripts/upgrader.zig");
 
 const CliArgs = union(enum) {
     cfo: cfo.CliArgs,
     ci: ci.CliArgs,
     release: release.CliArgs,
     devhub: devhub.CliArgs,
+    kcov: kcov.CliArgs,
     changelog: void,
+    upgrader: upgrader.CliArgs,
+
+    pub const help =
+        \\Usage:
+        \\
+        \\  zig build scripts -- [-h | --help]
+        \\
+        \\  zig build scripts -- changelog
+        \\
+        \\  zig build scripts -- cfo [--budget-minutes=<n>] [--hang-minutes=<n>] [--concurrency=<n>]
+        \\
+        \\  zig build scripts -- ci [--language=<dotnet|go|java|node>] [--validate-release]
+        \\
+        \\  zig build scripts -- devhub --sha=<commit>
+        \\
+        \\  zig build scripts -- release --run-number=<run> --sha=<commit>
+        \\
+        \\Options:
+        \\
+        \\  -h, --help
+        \\        Print this help message and exit.
+        \\
+        \\Options (release):
+        \\
+        \\  --language=<dotnet|go|java|node|zig|docker>
+        \\        Build/publish only the specified language.
+        \\        (If not set, cover all languages in sequence.)
+        \\
+        \\  --build
+        \\        Build the packages.
+        \\
+        \\  --publish
+        \\        Publish the packages.
+        \\
+    ;
 };
 
 pub fn main() !void {
@@ -53,6 +91,8 @@ pub fn main() !void {
         .ci => |args_ci| try ci.main(shell, gpa, args_ci),
         .release => |args_release| try release.main(shell, gpa, args_release),
         .devhub => |args_devhub| try devhub.main(shell, gpa, args_devhub),
+        .kcov => |args_kcov| try kcov.main(shell, gpa, args_kcov),
         .changelog => try changelog.main(shell, gpa),
+        .upgrader => |args_upgrader| try upgrader.main(shell, gpa, args_upgrader),
     }
 }

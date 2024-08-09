@@ -7,6 +7,7 @@ import {
   Operation,
   AccountFilter,
   AccountBalance,
+  QueryFilter,
 } from './bindings'
 import { randomFillSync } from 'node:crypto'
 
@@ -68,13 +69,12 @@ const binding: Binding = (() => {
 export type Context = object // tb_client
 export type AccountID = bigint // u128
 export type TransferID = bigint // u128
-export type Event = Account | Transfer | AccountID | TransferID | AccountFilter
+export type Event = Account | Transfer | AccountID | TransferID | AccountFilter | QueryFilter
 export type Result = CreateAccountsError | CreateTransfersError | Account | Transfer | AccountBalance
 export type ResultCallback = (error: Error | null, results: Result[] | null) => void
 
 interface BindingInitArgs {
   cluster_id: bigint, // u128
-  concurrency: number, // u32
   replica_addresses: Buffer,
 }
 
@@ -86,7 +86,6 @@ interface Binding {
 
 export interface ClientInitArgs {
   cluster_id: bigint, // u128
-  concurrency_max?: number, // u32
   replica_addresses: Array<string | number>,
 }
 
@@ -97,20 +96,28 @@ export interface Client {
   lookupTransfers: (batch: TransferID[]) => Promise<Transfer[]>
   getAccountTransfers: (filter: AccountFilter) => Promise<Transfer[]>
   getAccountBalances: (filter: AccountFilter) => Promise<AccountBalance[]>
+  queryAccounts: (filter: QueryFilter) => Promise<Account[]>
+  queryTransfers: (filter: QueryFilter) => Promise<Transfer[]>
   destroy: () => void
 }
 
 export function createClient (args: ClientInitArgs): Client {
-  const concurrency_max_default = 256 // arbitrary
-  const context = binding.init({
+  // Context becomes null when `destroy` is called. After that point, further `request` Promises
+  // throw a shutdown Error. This prevents tb_client calls from happening after tb_client_deinit().
+  let context: Context | null = binding.init({
     cluster_id: args.cluster_id,
-    concurrency: args.concurrency_max || concurrency_max_default,
     replica_addresses: Buffer.from(args.replica_addresses.join(',')),
   })
+
+  const destroy = () => {
+    if (context) binding.deinit(context)
+    context = null;
+  }
 
   const request = <T extends Result>(operation: Operation, batch: Event[]): Promise<T[]> => {
     return new Promise((resolve, reject) => {
       try {
+        if (!context) throw new Error('Client was shutdown.');
         binding.submit(context, operation, batch, (error, result) => {
           if (error) {
             reject(error)
@@ -133,7 +140,9 @@ export function createClient (args: ClientInitArgs): Client {
     lookupTransfers(batch) { return request(Operation.lookup_transfers, batch) },
     getAccountTransfers(filter) { return request(Operation.get_account_transfers, [filter]) },
     getAccountBalances(filter) { return request(Operation.get_account_balances, [filter]) },
-    destroy() { binding.deinit(context) },
+    queryAccounts(filter) { return request(Operation.query_accounts, [filter]) },
+    queryTransfers(filter) { return request(Operation.query_transfers, [filter]) },
+    destroy,
   }
 }
 

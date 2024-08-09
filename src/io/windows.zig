@@ -23,7 +23,12 @@ pub const IO = struct {
         _ = try os.windows.WSAStartup(2, 2);
         errdefer os.windows.WSACleanup() catch unreachable;
 
-        const iocp = try os.windows.CreateIoCompletionPort(os.windows.INVALID_HANDLE_VALUE, null, 0, 0);
+        const iocp = try os.windows.CreateIoCompletionPort(
+            os.windows.INVALID_HANDLE_VALUE,
+            null,
+            0,
+            0,
+        );
         return IO{ .iocp = iocp };
     }
 
@@ -41,7 +46,11 @@ pub const IO = struct {
 
     pub fn run_for_ns(self: *IO, nanoseconds: u63) !void {
         const Callback = struct {
-            fn on_timeout(timed_out: *bool, completion: *Completion, result: TimeoutError!void) void {
+            fn on_timeout(
+                timed_out: *bool,
+                completion: *Completion,
+                result: TimeoutError!void,
+            ) void {
                 _ = result catch unreachable;
                 _ = completion;
                 timed_out.* = true;
@@ -73,7 +82,8 @@ pub const IO = struct {
                 // Round up sub-millisecond expire times to the next millisecond
                 const expires_ms = (expires_ns + (std.time.ns_per_ms / 2)) / std.time.ns_per_ms;
                 // Saturating cast to DWORD milliseconds
-                const expires = std.math.cast(os.windows.DWORD, expires_ms) orelse std.math.maxInt(os.windows.DWORD);
+                const expires = std.math.cast(os.windows.DWORD, expires_ms) orelse
+                    std.math.maxInt(os.windows.DWORD);
                 // max DWORD is reserved for INFINITE so cap the cast at max - 1
                 timeout_ms = if (expires == os.windows.INFINITE) expires - 1 else expires;
             }
@@ -104,7 +114,10 @@ pub const IO = struct {
 
                 for (events[0..num_events]) |event| {
                     const raw_overlapped = event.lpOverlapped;
-                    const overlapped: *Completion.Overlapped = @fieldParentPtr("raw", raw_overlapped);
+                    const overlapped: *Completion.Overlapped = @fieldParentPtr(
+                        "raw",
+                        raw_overlapped,
+                    );
                     const completion = overlapped.completion;
                     completion.next = null;
                     self.completed.push(completion);
@@ -197,19 +210,19 @@ pub const IO = struct {
             send: Transfer,
             recv: Transfer,
             read: struct {
-                fd: std.posix.fd_t,
+                fd: fd_t,
                 buf: [*]u8,
                 len: u32,
                 offset: u64,
             },
             write: struct {
-                fd: std.posix.fd_t,
+                fd: fd_t,
                 buf: [*]const u8,
                 len: u32,
                 offset: u64,
             },
             close: struct {
-                fd: std.posix.fd_t,
+                fd: fd_t,
             },
             timeout: struct {
                 deadline: u64,
@@ -296,7 +309,10 @@ pub const IO = struct {
                 .addr_buffer = undefined,
             },
             struct {
-                fn do_operation(ctx: Completion.Context, op: anytype) AcceptError!std.posix.socket_t {
+                fn do_operation(
+                    ctx: Completion.Context,
+                    op: anytype,
+                ) AcceptError!std.posix.socket_t {
                     var flags: os.windows.DWORD = undefined;
                     var transferred: os.windows.DWORD = undefined;
 
@@ -309,7 +325,8 @@ pub const IO = struct {
                                 std.posix.SOCK.STREAM,
                                 std.posix.IPPROTO.TCP,
                             ) catch |err| switch (err) {
-                                error.AddressFamilyNotSupported, error.ProtocolNotSupported => unreachable,
+                                error.AddressFamilyNotSupported => unreachable,
+                                error.ProtocolNotSupported => unreachable,
                                 else => |e| return e,
                             };
 
@@ -467,6 +484,7 @@ pub const IO = struct {
                         var connect_ex: LPFN_CONNECTEX = undefined;
                         var num_bytes: os.windows.DWORD = undefined;
                         const guid = os.windows.ws2_32.WSAID_CONNECTEX;
+                        const socket_error = os.windows.ws2_32.SOCKET_ERROR;
                         switch (os.windows.ws2_32.WSAIoctl(
                             op.socket,
                             os.windows.ws2_32.SIO_GET_EXTENSION_FUNCTION_POINTER,
@@ -478,7 +496,7 @@ pub const IO = struct {
                             null,
                             null,
                         )) {
-                            os.windows.ws2_32.SOCKET_ERROR => switch (os.windows.ws2_32.WSAGetLastError()) {
+                            socket_error => switch (os.windows.ws2_32.WSAGetLastError()) {
                                 .WSAEOPNOTSUPP => unreachable,
                                 .WSAENOTSOCK => unreachable,
                                 else => |err| return os.windows.unexpectedWSAError(err),
@@ -519,7 +537,8 @@ pub const IO = struct {
                     }
 
                     return switch (os.windows.ws2_32.WSAGetLastError()) {
-                        .WSA_IO_PENDING, .WSAEWOULDBLOCK, .WSA_IO_INCOMPLETE, .WSAEALREADY => error.WouldBlock,
+                        .WSA_IO_PENDING, .WSAEWOULDBLOCK, .WSA_IO_INCOMPLETE => error.WouldBlock,
+                        .WSAEALREADY => error.WouldBlock,
                         .WSANOTINITIALISED => unreachable, // WSAStartup() was called
                         .WSAENETDOWN => unreachable, // network subsystem is down
                         .WSAEADDRNOTAVAIL => error.AddressNotAvailable,
@@ -603,7 +622,10 @@ pub const IO = struct {
                             &op.overlapped.raw,
                             null,
                         )) {
-                            os.windows.ws2_32.SOCKET_ERROR => @as(os.windows.BOOL, os.windows.FALSE),
+                            os.windows.ws2_32.SOCKET_ERROR => @as(
+                                os.windows.BOOL,
+                                os.windows.FALSE,
+                            ),
                             0 => os.windows.TRUE,
                             else => unreachable,
                         };
@@ -703,7 +725,10 @@ pub const IO = struct {
                             &op.overlapped.raw,
                             null,
                         )) {
-                            os.windows.ws2_32.SOCKET_ERROR => @as(os.windows.BOOL, os.windows.FALSE),
+                            os.windows.ws2_32.SOCKET_ERROR => @as(
+                                os.windows.BOOL,
+                                os.windows.FALSE,
+                            ),
                             0 => os.windows.TRUE,
                             else => unreachable,
                         };
@@ -740,6 +765,8 @@ pub const IO = struct {
         );
     }
 
+    pub const OpenatError = std.posix.OpenError || std.posix.UnexpectedError;
+
     pub const ReadError = error{
         WouldBlock,
         NotOpenForReading,
@@ -762,7 +789,7 @@ pub const IO = struct {
             result: ReadError!usize,
         ) void,
         completion: *Completion,
-        fd: std.posix.fd_t,
+        fd: fd_t,
         buffer: []u8,
         offset: u64,
     ) void {
@@ -781,7 +808,11 @@ pub const IO = struct {
                 fn do_operation(ctx: Completion.Context, op: anytype) ReadError!usize {
                     // Do a synchronous read for now.
                     _ = ctx;
-                    return std.posix.pread(op.fd, op.buf[0..op.len], op.offset) catch |err| switch (err) {
+                    return std.posix.pread(
+                        op.fd,
+                        op.buf[0..op.len],
+                        op.offset,
+                    ) catch |err| switch (err) {
                         error.OperationAborted => unreachable,
                         error.BrokenPipe => unreachable,
                         error.ConnectionTimedOut => unreachable,
@@ -806,7 +837,7 @@ pub const IO = struct {
             result: WriteError!usize,
         ) void,
         completion: *Completion,
-        fd: std.posix.fd_t,
+        fd: fd_t,
         buffer: []const u8,
         offset: u64,
     ) void {
@@ -841,7 +872,7 @@ pub const IO = struct {
             result: CloseError!void,
         ) void,
         completion: *Completion,
-        fd: std.posix.fd_t,
+        fd: fd_t,
     ) void {
         self.submit(
             context,
@@ -954,18 +985,20 @@ pub const IO = struct {
     }
 
     /// Opens a directory with read only access.
-    pub fn open_dir(dir_path: []const u8) !std.posix.fd_t {
+    pub fn open_dir(dir_path: []const u8) !fd_t {
         const dir = try std.fs.cwd().openDir(dir_path, .{});
         return dir.fd;
     }
 
+    pub const fd_t = std.posix.fd_t;
     pub const INVALID_FILE = os.windows.INVALID_HANDLE_VALUE;
 
+    // TODO open_read_only should open the file as read-only.
     fn open_file_handle(
-        dir_handle: std.posix.fd_t,
+        dir_handle: fd_t,
         relative_path: []const u8,
-        method: enum { create, open },
-    ) !std.posix.fd_t {
+        method: enum { create, open, open_read_only },
+    ) !fd_t {
         const path_w = try os.windows.sliceToPrefixedFileW(dir_handle, relative_path);
 
         // FILE_CREATE = O_CREAT | O_EXCL
@@ -975,7 +1008,7 @@ pub const IO = struct {
                 creation_disposition = os.windows.FILE_CREATE;
                 log.info("creating \"{s}\"...", .{relative_path});
             },
-            .open => {
+            .open, .open_read_only => {
                 creation_disposition = os.windows.OPEN_EXISTING;
                 log.info("opening \"{s}\"...", .{relative_path});
             },
@@ -1039,12 +1072,12 @@ pub const IO = struct {
     ///   The caller is responsible for ensuring that the parent directory inode is durable.
     /// - Verifies that the file size matches the expected file size before returning.
     pub fn open_file(
-        dir_handle: std.posix.fd_t,
+        dir_handle: fd_t,
         relative_path: []const u8,
         size: u64,
-        method: enum { create, create_or_open, open },
+        method: enum { create, create_or_open, open, open_read_only },
         direct_io: DirectIO,
-    ) !std.posix.fd_t {
+    ) !fd_t {
         assert(relative_path.len > 0);
         assert(size % constants.sector_size == 0);
         // On windows, assume that Direct IO is always available.
@@ -1052,8 +1085,13 @@ pub const IO = struct {
 
         const handle = switch (method) {
             .open => try open_file_handle(dir_handle, relative_path, .open),
+            .open_read_only => try open_file_handle(dir_handle, relative_path, .open_read_only),
             .create => try open_file_handle(dir_handle, relative_path, .create),
-            .create_or_open => open_file_handle(dir_handle, relative_path, .open) catch |err| switch (err) {
+            .create_or_open => open_file_handle(
+                dir_handle,
+                relative_path,
+                .open,
+            ) catch |err| switch (err) {
                 error.FileNotFound => try open_file_handle(dir_handle, relative_path, .create),
                 else => return err,
             },
@@ -1081,7 +1119,11 @@ pub const IO = struct {
                 const write_offset = size - sector.len;
                 var written: usize = 0;
                 while (written < sector.len) {
-                    written += try std.posix.pwrite(handle, sector[written..], write_offset + written);
+                    written += try std.posix.pwrite(
+                        handle,
+                        sector[written..],
+                        write_offset + written,
+                    );
                 }
             };
         }
@@ -1103,7 +1145,7 @@ pub const IO = struct {
         return handle;
     }
 
-    fn fs_lock(handle: std.posix.fd_t, size: u64) !void {
+    fn fs_lock(handle: fd_t, size: u64) !void {
         // TODO: Look into using SetFileIoOverlappedRange() for better unbuffered async IO perf
         // NOTE: Requires SeLockMemoryPrivilege.
 
@@ -1147,7 +1189,7 @@ pub const IO = struct {
         }
     }
 
-    fn fs_allocate(handle: std.posix.fd_t, size: u64) !void {
+    fn fs_allocate(handle: fd_t, size: u64) !void {
         // TODO: Look into using SetFileValidData() instead
         // NOTE: Requires SE_MANAGE_VOLUME_NAME privilege
 
@@ -1192,7 +1234,11 @@ fn getsockoptError(socket: std.posix.socket_t) IO.ConnectError!void {
         switch (os.windows.ws2_32.WSAGetLastError()) {
             .WSAENETDOWN => return error.NetworkUnreachable,
             .WSANOTINITIALISED => unreachable, // WSAStartup() was never called
-            .WSAEFAULT => unreachable, // The address pointed to by optval or optlen is not in a valid part of the process address space.
+
+            // The address pointed to by optval or optlen is not in a valid part of the process
+            // address space.
+            .WSAEFAULT => unreachable,
+
             .WSAEINVAL => unreachable, // The level parameter is unknown or invalid
             .WSAENOPROTOOPT => unreachable, // The option is unknown at the level indicated.
             .WSAENOTSOCK => return error.FileDescriptorNotASocket,

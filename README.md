@@ -21,8 +21,8 @@ Want to build from source locally?
 
 ```console
 git clone https://github.com/tigerbeetle/tigerbeetle && cd tigerbeetle
-./scripts/install_zig.sh # or .bat if you're on Windows.
-zig/zig build
+./zig/download.sh # or .bat if you're on Windows.
+./zig/zig build
 ./tigerbeetle version
 ```
 
@@ -31,7 +31,7 @@ zig/zig build
 Then create the TigerBeetle data file.
 
 ```console
-./tigerbeetle format --cluster=0 --replica=0 --replica-count=1 0_0.tigerbeetle
+./tigerbeetle format --cluster=0 --replica=0 --replica-count=1 --development 0_0.tigerbeetle
 ```
 ```console
 info(io): creating "0_0.tigerbeetle"...
@@ -41,7 +41,7 @@ info(io): allocating 660.140625MiB...
 And start the replica.
 
 ```console
-./tigerbeetle start --addresses=3000 0_0.tigerbeetle
+./tigerbeetle start --addresses=3000 --development 0_0.tigerbeetle
 ```
 ```console
 info(io): opening "0_0.tigerbeetle"...
@@ -120,8 +120,9 @@ and account `2` has `credits_posted` as `10`. The `10` amount is fully
 accounted for!
 
 For further reading:
-* [Run a single-node cluster](https://docs.tigerbeetle.com/getting-started/single-binary)
-* [Run a three-node cluster](https://docs.tigerbeetle.com/getting-started/single-binary-three)
+* [Run a single-node cluster](https://docs.tigerbeetle.com/quick-start)
+* [Run a three-node cluster](https://docs.tigerbeetle.com/quick-start/#optional-run-a-multi-node-cluster)
+* [Run on docker](https://docs.tigerbeetle.com/operating/docker)
 
 ## Next Steps
 
@@ -151,7 +152,7 @@ Here are a few key pages you might be interested in:
 - Deployment
   - [Hardware](https://docs.tigerbeetle.com/deploy/hardware/)
 - Usage
-  - [Integration](https://docs.tigerbeetle.com/#designing-for-tigerbeetle)
+  - [Integration](https://docs.tigerbeetle.com/coding/system-architecture)
 - Reference
   - [Account](https://docs.tigerbeetle.com/reference/account)
   - [Transfer](https://docs.tigerbeetle.com/reference/transfer)

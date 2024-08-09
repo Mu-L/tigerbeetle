@@ -89,6 +89,7 @@ pub const Header = extern struct {
             .start_view_change => StartViewChange,
             .do_view_change => DoViewChange,
             .start_view => StartView,
+            .start_view2 => StartView2,
             .request_start_view => RequestStartView,
             .request_headers => RequestHeaders,
             .request_prepare => RequestPrepare,
@@ -208,10 +209,32 @@ pub const Header = extern struct {
                 }
             },
             .prepare => return .unknown,
+            .block => return .unknown,
+            .reply => return .unknown,
             // These messages identify the peer as either a replica or a client:
             .ping_client => |ping| return .{ .client = ping.client },
+
+            .start_view2 => return .unknown, // At the current version, SV2 is completely ignored.
+
             // All other messages identify the peer as a replica:
-            else => return .{ .replica = self.replica },
+            .ping,
+            .pong,
+            .pong_client,
+            .prepare_ok,
+            .commit,
+            .start_view_change,
+            .do_view_change,
+            .start_view,
+            .request_start_view,
+            .request_headers,
+            .request_prepare,
+            .request_reply,
+            .headers,
+            .eviction,
+            .request_blocks,
+            .request_sync_checkpoint,
+            .sync_checkpoint,
+            => return .{ .replica = self.replica },
         }
     }
 
@@ -348,7 +371,7 @@ pub const Header = extern struct {
         release: vsr.Release,
         protocol: u16 = vsr.Version,
         command: Command,
-        replica: u8 = 0,
+        replica: u8,
         reserved_frame: [12]u8 = [_]u8{0} ** 12,
 
         ping_timestamp_monotonic: u64,
@@ -1026,6 +1049,32 @@ pub const Header = extern struct {
         }
     };
 
+    pub const StartView2 = extern struct {
+        pub usingnamespace HeaderFunctions(@This());
+
+        checksum: u128,
+        checksum_padding: u128,
+        checksum_body: u128,
+        checksum_body_padding: u128,
+        nonce_reserved: u128,
+        cluster: u128,
+        size: u32,
+        epoch: u32,
+        view: u32,
+        release: vsr.Release = vsr.Release.zero,
+        protocol: u16 = vsr.Version,
+        command: Command,
+        replica: u8,
+        reserved_frame: [12]u8 = [_]u8{0} ** 12,
+
+        reserved: [128]u8 = .{0} ** 128,
+
+        fn invalid_header(self: *const @This()) ?[]const u8 {
+            assert(self.command == .start_view2);
+            return null;
+        }
+    };
+
     pub const RequestStartView = extern struct {
         pub usingnamespace HeaderFunctions(@This());
 
@@ -1241,6 +1290,8 @@ pub const Header = extern struct {
             invalid_request_operation = 4,
             invalid_request_body = 5,
             invalid_request_body_size = 6,
+            session_too_low = 7,
+            session_release_mismatch = 8,
 
             comptime {
                 for (std.enums.values(Reason), 0..) |reason, index| {

@@ -5,7 +5,8 @@ const fmt = std.fmt;
 const log = @import("../stdx.zig").log.scoped(.clock);
 const constants = @import("../constants.zig");
 
-const clock_offset_tolerance_max: u64 = constants.clock_offset_tolerance_max_ms * std.time.ns_per_ms;
+const clock_offset_tolerance_max: u64 =
+    constants.clock_offset_tolerance_max_ms * std.time.ns_per_ms;
 const epoch_max: u64 = constants.clock_epoch_max_ms * std.time.ns_per_ms;
 const window_min: u64 = constants.clock_synchronization_window_min_ms * std.time.ns_per_ms;
 const window_max: u64 = constants.clock_synchronization_window_max_ms * std.time.ns_per_ms;
@@ -17,33 +18,37 @@ pub fn ClockType(comptime Time: type) type {
         const Self = @This();
 
         const Sample = struct {
-            /// The relative difference between our wall clock reading and that of the remote clock source.
+            /// The relative difference between our wall clock reading and that of the remote clock
+            //source.
             clock_offset: i64,
             one_way_delay: u64,
         };
 
         const Epoch = struct {
-            /// The best clock offset sample per remote clock source (with minimum one way delay) collected
-            /// over the course of a window period of several seconds.
+            /// The best clock offset sample per remote clock source (with minimum one way delay)
+            /// collected over the course of a window period of several seconds.
             sources: []?Sample,
 
             /// The total number of samples learned while synchronizing this epoch.
             samples: usize,
 
-            /// The monotonic clock timestamp when this epoch began. We use this to measure elapsed time.
+            /// The monotonic clock timestamp when this epoch began. We use this to measure elapsed
+            /// time.
             monotonic: u64,
 
-            /// The wall clock timestamp when this epoch began. We add the elapsed monotonic time to this
-            /// plus the synchronized clock offset to arrive at a synchronized realtime timestamp. We
-            /// capture this realtime when starting the epoch, before we take any samples, to guard against
-            /// any jumps in the system's realtime clock from impacting our measurements.
+            /// The wall clock timestamp when this epoch began. We add the elapsed monotonic time to
+            /// this plus the synchronized clock offset to arrive at a synchronized realtime
+            /// timestamp. We capture this realtime when starting the epoch, before we take any
+            /// samples, to guard against any jumps in the system's realtime clock from impacting
+            /// our measurements.
             realtime: i64,
 
-            /// Once we have enough source clock offset samples in agreement, the epoch is synchronized.
-            /// We then have lower and upper bounds on the true cluster time, and can install this epoch for
-            /// subsequent clock readings. This epoch is then valid for several seconds, while clock drift
-            /// has not had enough time to accumulate into any significant clock skew, and while we collect
-            /// samples for the next epoch to refresh and replace this one.
+            /// Once we have enough source clock offset samples in agreement, the epoch is
+            /// synchronized. We then have lower and upper bounds on the true cluster time, and can
+            /// install this epoch for subsequent clock readings. This epoch is then valid for
+            /// several seconds, while clock drift has not had enough time to accumulate into any
+            /// significant clock skew, and while we collect samples for the next epoch to refresh
+            /// and replace this one.
             synchronized: ?Marzullo.Interval,
 
             /// A guard to prevent synchronizing too often without having learned any new samples.
@@ -55,7 +60,8 @@ pub fn ClockType(comptime Time: type) type {
 
             fn reset(epoch: *Epoch, clock: *Self) void {
                 @memset(epoch.sources, null);
-                // A replica always has zero clock offset and network delay to its own system time reading:
+                // A replica always has zero clock offset and network delay to its own system time
+                // reading:
                 epoch.sources[clock.replica] = Sample{
                     .clock_offset = 0,
                     .one_way_delay = 0,
@@ -78,6 +84,8 @@ pub fn ClockType(comptime Time: type) type {
 
         /// The index of the replica using this clock to provide synchronized time.
         replica: u8,
+        /// Minimal number of distinct clock sources required for synchronization.
+        quorum: u8,
 
         /// The underlying time source for this clock (system time or deterministic time).
         time: *Time,
@@ -90,7 +98,8 @@ pub fn ClockType(comptime Time: type) type {
         /// The next epoch (collecting samples and being synchronized) to replace the current epoch.
         window: Epoch,
 
-        /// A static allocation to convert window samples into tuple bounds for Marzullo's algorithm.
+        /// A static allocation to convert window samples into tuple bounds for Marzullo's
+        /// algorithm.
         marzullo_tuples: []Marzullo.Tuple,
 
         /// A kill switch to revert to unsynchronized realtime.
@@ -98,33 +107,42 @@ pub fn ClockType(comptime Time: type) type {
 
         pub fn init(
             allocator: std.mem.Allocator,
-            /// The size of the cluster, i.e. the number of clock sources (including this replica).
-            replica_count: u8,
-            replica: u8,
             time: *Time,
+            options: struct {
+                /// The size of the cluster, i.e. the number of clock sources (including this
+                /// replica).
+                replica_count: u8,
+                replica: u8,
+                quorum: u8,
+            },
         ) !Self {
-            assert(replica_count > 0);
-            assert(replica < replica_count);
+            assert(options.replica_count > 0);
+            assert(options.replica < options.replica_count);
+            assert(options.quorum > 0);
+            assert(options.quorum <= options.replica_count);
+            if (options.replica_count > 1) assert(options.quorum > 1);
 
             var epoch: Epoch = undefined;
-            epoch.sources = try allocator.alloc(?Sample, replica_count);
+            epoch.sources = try allocator.alloc(?Sample, options.replica_count);
             errdefer allocator.free(epoch.sources);
 
             var window: Epoch = undefined;
-            window.sources = try allocator.alloc(?Sample, replica_count);
+            window.sources = try allocator.alloc(?Sample, options.replica_count);
             errdefer allocator.free(window.sources);
 
             // There are two Marzullo tuple bounds (lower and upper) per source clock offset sample:
-            const marzullo_tuples = try allocator.alloc(Marzullo.Tuple, replica_count * 2);
+            const marzullo_tuples = try allocator.alloc(Marzullo.Tuple, options.replica_count * 2);
             errdefer allocator.free(marzullo_tuples);
 
             var self = Self{
-                .replica = replica,
+                .replica = options.replica,
+                .quorum = options.quorum,
                 .time = time,
                 .epoch = epoch,
                 .window = window,
                 .marzullo_tuples = marzullo_tuples,
-                .synchronization_disabled = replica_count == 1, // A cluster of one cannot synchronize.
+                // A cluster of one cannot synchronize.
+                .synchronization_disabled = options.replica_count == 1,
             };
 
             // Reset the current epoch to be unsynchronized,
@@ -143,7 +161,8 @@ pub fn ClockType(comptime Time: type) type {
 
         /// Called by `Replica.on_pong()` with:
         /// * the index of the `replica` that has replied to our ping with a pong,
-        /// * our monotonic timestamp `m0` embedded in the ping we sent, carried over into this pong,
+        /// * our monotonic timestamp `m0` embedded in the ping we sent, carried over
+        ///   into this pong,
         /// * the remote replica's `realtime()` timestamp `t1`, and
         /// * our monotonic timestamp `m2` as captured by our `Replica.on_pong()` handler.
         pub fn learn(self: *Self, replica: u8, m0: u64, t1: i64, m2: u64) void {
@@ -215,7 +234,8 @@ pub fn ClockType(comptime Time: type) type {
                 clock_offset_corrected,
             });
 
-            // The less network delay, the more likely we have an accurante clock offset measurement:
+            // The less network delay, the more likely we have an accurante clock offset
+            // measurement:
             self.window.sources[replica] = minimum_one_way_delay(
                 self.window.sources[replica],
                 Sample{
@@ -226,15 +246,15 @@ pub fn ClockType(comptime Time: type) type {
 
             self.window.samples += 1;
 
-            // We decouple calls to `synchronize()` so that it's not triggered by these network events.
-            // Otherwise, excessive duplicate network packets would burn the CPU.
+            // We decouple calls to `synchronize()` so that it's not triggered by these network
+            // events. Otherwise, excessive duplicate network packets would burn the CPU.
             self.window.learned = true;
         }
 
         /// Called by `Replica.on_ping_timeout()` to provide `m0` when we decide to send a ping.
         /// Called by `Replica.on_pong()` to provide `m2` when we receive a pong.
         /// Called by `Replica.on_commit_message_timeout()` to allow backups to discard
-        //  duplicate/misdirected heartbeats.
+        /// duplicate/misdirected heartbeats.
         pub fn monotonic(self: *Self) u64 {
             return self.time.monotonic();
         }
@@ -245,11 +265,13 @@ pub fn ClockType(comptime Time: type) type {
             return self.time.realtime();
         }
 
-        /// Called by `StateMachine.prepare_timestamp()` when the primary wants to timestamp a batch.
-        /// If the primary's clock is not synchronized with the cluster, it must wait until it is.
+        /// Called by `StateMachine.prepare_timestamp()` when the primary wants to timestamp a
+        /// batch. If the primary's clock is not synchronized with the cluster, it must wait until
+        /// it is.
         /// Returns the system time clamped to be within our synchronized lower and upper bounds.
-        /// This is complementary to NTP and allows clusters with very accurate time to make use of it,
-        /// while providing guard rails for when NTP is partitioned or unable to correct quickly enough.
+        /// This is complementary to NTP and allows clusters with very accurate time to make use of
+        /// it, while providing guard rails for when NTP is partitioned or unable to correct quickly
+        /// enough.
         pub fn realtime_synchronized(self: *Self) ?i64 {
             if (self.synchronization_disabled) {
                 return self.realtime();
@@ -281,8 +303,9 @@ pub fn ClockType(comptime Time: type) type {
             }
         }
 
-        /// Estimates the asymmetric delay for a sample compared to the previous window, according to
-        /// Algorithm 1 from Section 4.2, "A System for Clock Synchronization in an Internet of Things".
+        /// Estimates the asymmetric delay for a sample compared to the previous window,
+        /// according to Algorithm 1 from Section 4.2,
+        /// "A System for Clock Synchronization in an Internet of Things".
         fn estimate_asymmetric_delay(
             self: *Self,
             replica: u8,
@@ -337,29 +360,32 @@ pub fn ClockType(comptime Time: type) type {
             }
 
             if (!self.window.learned) return;
-            // Do not reset `learned` any earlier than this (before we have attempted to synchronize).
+            // Do not reset `learned` any earlier than this (before we have attempted to
+            // synchronize).
             self.window.learned = false;
 
-            // Starting with the most clock offset tolerance, while we have a majority, find the best
-            // smallest interval with the least clock offset tolerance, reducing tolerance at each step:
+            // Starting with the most clock offset tolerance, while we have a quorum, find the best
+            // smallest interval with the least clock offset tolerance, reducing tolerance at each
+            // step:
             var tolerance: u64 = clock_offset_tolerance_max;
             var terminate = false;
             var rounds: usize = 0;
-            // Do at least one round if tolerance=0 and cap the number of rounds to avoid runaway loops.
+            // Do at least one round if tolerance=0 and cap the number of rounds to avoid runaway
+            // loops.
             while (!terminate and rounds < 64) : (tolerance /= 2) {
                 if (tolerance == 0) terminate = true;
                 rounds += 1;
 
                 const interval = Marzullo.smallest_interval(self.window_tuples(tolerance));
-                const majority = interval.sources_true > @divTrunc(self.window.sources.len, 2);
-                if (!majority) break;
+                if (interval.sources_true < self.quorum) break;
 
-                // The new interval may reduce the number of `sources_true` while also decreasing error.
-                // In other words, provided we maintain a majority, we prefer tighter tolerance bounds.
+                // The new interval may reduce the number of `sources_true` while also decreasing
+                // error. In other words, provided we maintain a quorum, we prefer tighter tolerance
+                // bounds.
                 self.window.synchronized = interval;
             }
 
-            // Wait for more accurate samples or until we timeout the window for lack of majority:
+            // Wait for more accurate samples or until we timeout the window for lack of quorum:
             if (self.window.synchronized == null) return;
 
             var new_window = self.epoch;
@@ -425,13 +451,15 @@ pub fn ClockType(comptime Time: type) type {
                 if (sampled) |sample| {
                     self.marzullo_tuples[count] = Marzullo.Tuple{
                         .source = @intCast(source),
-                        .offset = sample.clock_offset - @as(i64, @intCast(sample.one_way_delay + tolerance)),
+                        .offset = sample.clock_offset -
+                            @as(i64, @intCast(sample.one_way_delay + tolerance)),
                         .bound = .lower,
                     };
                     count += 1;
                     self.marzullo_tuples[count] = Marzullo.Tuple{
                         .source = @intCast(source),
-                        .offset = sample.clock_offset + @as(i64, @intCast(sample.one_way_delay + tolerance)),
+                        .offset = sample.clock_offset +
+                            @as(i64, @intCast(sample.one_way_delay + tolerance)),
                         .bound = .upper,
                     };
                     count += 1;
@@ -478,7 +506,11 @@ const ClockUnitTestContainer = struct {
                 .offset_coefficient_A = offset_coefficient_A,
                 .offset_coefficient_B = offset_coefficient_B,
             },
-            .clock = try DeterministicClock.init(allocator, 3, 0, &self.time),
+            .clock = try DeterministicClock.init(allocator, &self.time, .{
+                .replica_count = 3,
+                .replica = 0,
+                .quorum = 2,
+            }),
         };
     }
 
@@ -508,13 +540,14 @@ const ClockUnitTestContainer = struct {
         switch (self.clock.time.offset_type) {
             .linear => {
                 // For the first (OWD/drift per tick) ticks, the offset < OWD. This means that the
-                // Marzullo interval is [0,0] (the offset and OWD are 0 for a replica w.r.t. itself).
-                // Therefore the offset of `clock.realtime_synchronised` will be the analytically prescribed
-                // offset at the start of the window.
-                // Beyond this, the offset > OWD and the Marzullo interval will be from replica 1 and
-                // replica 2. The `clock.realtime_synchronized` will be clamped to the lower bound.
-                // Therefore the `clock.realtime_synchronized` will be offset by the OWD.
-                const threshold = self.owd / @as(u64, @intCast(self.clock.time.offset_coefficient_A));
+                // Marzullo interval is [0,0] (the offset and OWD are 0 for a replica w.r.t.
+                // itself). Therefore the offset of `clock.realtime_synchronised` will be the
+                // analytically prescribed offset at the start of the window.
+                // Beyond this, the offset > OWD and the Marzullo interval will be from replica 1
+                // and replica 2. The `clock.realtime_synchronized` will be clamped to the lower
+                // bound. Therefore the `clock.realtime_synchronized` will be offset by the OWD.
+                const threshold = self.owd /
+                    @as(u64, @intCast(self.clock.time.offset_coefficient_A));
                 ret[0] = .{
                     .tick = threshold,
                     .expected_offset = self.clock.time.offset(threshold - self.learn_interval),
@@ -690,12 +723,11 @@ const ClockSimulator = struct {
                 .offset_coefficient_C = 10,
             };
 
-            clock.* = try DeterministicClock.init(
-                allocator,
-                options.clock_count,
-                @as(u8, @intCast(replica)),
-                &times[replica],
-            );
+            clock.* = try DeterministicClock.init(allocator, &times[replica], .{
+                .replica_count = options.clock_count,
+                .replica = @intCast(replica),
+                .quorum = @divFloor(options.clock_count, 2) + 1,
+            });
             errdefer clock.deinit(allocator);
         }
         errdefer for (clocks) |*clock| clock.deinit(allocator);

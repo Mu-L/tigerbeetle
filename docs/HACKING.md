@@ -10,7 +10,7 @@ production deployments, TigerBeetle also works on Windows and MacOS.
 ```console
 git clone https://github.com/tigerbeetle/tigerbeetle.git
 cd tigerbeetle
-./scripts/install_zig.sh # There's a .bat version for Windows.
+./zig/download.sh # .bat if you're on Windows.
 ./zig/zig build -Drelease
 ./tigerbeetle --version
 ```
@@ -157,7 +157,7 @@ When submitting pull request, _assign_ a single person to be its reviewer. Unpac
 * Only a single person is assigned to any particular pull request, to avoid diffusion of
   responsibility and the bystander effect.
 
-* Pull request author choses the reviewer. The author ha the most context about who is the best
+* Pull request author chooses the reviewer. The author has the most context about who is the best
   person to request review from. When picking a reviewer, think about sharing knowledge, balancing
   review load, and maximizing correctness of the code.
 

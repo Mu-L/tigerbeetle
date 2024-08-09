@@ -10,6 +10,8 @@ import {
   AccountFilterFlags,
   AccountFlags,
   id,
+  QueryFilter,
+  QueryFilterFlags,
 } from '.'
 
 const client = createClient({
@@ -381,9 +383,37 @@ test('cannot void an expired transfer', async (): Promise<void> => {
   const transferErrors = await client.createTransfers([transfer])
   assert.deepStrictEqual(transferErrors, [])
 
-  // Wait for the transfer to expire.
+  var accounts = await client.lookupAccounts([accountA.id, accountB.id])
+  assert.strictEqual(accounts.length, 2)
+  assert.strictEqual(accounts[0].credits_posted, 150n)
+  assert.strictEqual(accounts[0].credits_pending, 50n)
+  assert.strictEqual(accounts[0].debits_posted, 0n)
+  assert.strictEqual(accounts[0].debits_pending, 0n)
+
+  assert.strictEqual(accounts[1].credits_posted, 0n)
+  assert.strictEqual(accounts[1].credits_pending, 0n)
+  assert.strictEqual(accounts[1].debits_posted, 150n)
+  assert.strictEqual(accounts[1].debits_pending, 50n)
+
+  // We need to wait 1s for the server to expire the transfer, however the
+  // server can pulse the expiry operation anytime after the timeout,
+  // so adding an extra delay to avoid flaky tests.
   // TODO: Use `await setTimeout(1000)` when upgrade to Node > 15.
-  await new Promise(_ => setTimeout(_, 1000));
+  const extra_wait_time = 250;
+  await new Promise(_ => setTimeout(_, (transfer.timeout * 1000) + extra_wait_time));
+
+  // Looking up the accounts again for the updated balance.
+  accounts = await client.lookupAccounts([accountA.id, accountB.id])
+  assert.strictEqual(accounts.length, 2)
+  assert.strictEqual(accounts[0].credits_posted, 150n)
+  assert.strictEqual(accounts[0].credits_pending, 0n)
+  assert.strictEqual(accounts[0].debits_posted, 0n)
+  assert.strictEqual(accounts[0].debits_pending, 0n)
+
+  assert.strictEqual(accounts[1].credits_posted, 0n)
+  assert.strictEqual(accounts[1].credits_pending, 0n)
+  assert.strictEqual(accounts[1].debits_posted, 150n)
+  assert.strictEqual(accounts[1].debits_pending, 0n)
 
   // send in the reject
   const reject: Transfer = {
@@ -719,6 +749,455 @@ test('can get account transfers', async (): Promise<void> => {
   assert.deepStrictEqual((await client.getAccountTransfers(filter)), [])
   assert.deepStrictEqual((await client.getAccountBalances(filter)), [])
 
+})
+
+test('can query accounts', async (): Promise<void> => {
+  {
+    var accounts : Account[] = [];
+    // Create transfers:
+    for (var i=0; i<10;i++) {
+      accounts.push({
+        id: id(),
+        debits_pending: 0n,
+        debits_posted: 0n,
+        credits_pending: 0n,
+        credits_posted: 0n,
+        user_data_128: i % 2 == 0 ? 1000n : 2000n,
+        user_data_64: i % 2 == 0 ? 100n : 200n,
+        user_data_32: i % 2 == 0 ? 10 : 20,
+        ledger: 1,
+        code: 999,
+        flags: AccountFlags.none,
+        reserved: 0,
+        timestamp: 0n,
+      })
+    }
+
+    const create_accounts_result = await client.createAccounts(accounts)
+    assert.deepStrictEqual(create_accounts_result, [])
+  }
+
+  {
+    // Querying accounts where:
+    // `user_data_128=1000 AND user_data_64=100 AND user_data_32=10
+    // AND code=999 AND ledger=1 ORDER BY timestamp ASC`.
+    var filter: QueryFilter = {
+      user_data_128: 1000n,
+      user_data_64: 100n,
+      user_data_32: 10,
+      ledger: 1,
+      code: 999,
+      timestamp_min: 0n,
+      timestamp_max: 0n,
+      limit: 8190,
+      flags: QueryFilterFlags.none,
+    }
+    var query: Account[] = await client.queryAccounts(filter)
+    assert.strictEqual(query.length, 5)
+
+    var timestamp = 0n;
+    for (var account of query) {
+      assert.ok(timestamp < account.timestamp);
+      timestamp = account.timestamp;
+
+      assert.strictEqual(account.user_data_128, filter.user_data_128);
+      assert.strictEqual(account.user_data_64, filter.user_data_64);
+      assert.strictEqual(account.user_data_32, filter.user_data_32);
+      assert.strictEqual(account.ledger, filter.ledger);
+      assert.strictEqual(account.code, filter.code);
+    }
+  }
+
+  {
+    // Querying accounts where:
+    // `user_data_128=2000 AND user_data_64=200 AND user_data_32=20
+    // AND code=999 AND ledger=1 ORDER BY timestamp DESC`.
+    var filter: QueryFilter = {
+      user_data_128: 2000n,
+      user_data_64: 200n,
+      user_data_32: 20,
+      ledger: 1,
+      code: 999,
+      timestamp_min: 0n,
+      timestamp_max: 0n,
+      limit: 8190,
+      flags: QueryFilterFlags.reversed,
+    }
+    var query: Account[] = await client.queryAccounts(filter)
+    assert.strictEqual(query.length, 5)
+
+    var timestamp = 1n << 64n;
+    for (var account of query) {
+      assert.ok(timestamp > account.timestamp);
+      timestamp = account.timestamp;
+
+      assert.strictEqual(account.user_data_128, filter.user_data_128);
+      assert.strictEqual(account.user_data_64, filter.user_data_64);
+      assert.strictEqual(account.user_data_32, filter.user_data_32);
+      assert.strictEqual(account.ledger, filter.ledger);
+      assert.strictEqual(account.code, filter.code);
+    }
+  }
+
+  {
+    // Querying accounts where:
+    // `code=999 ORDER BY timestamp ASC`
+    var filter: QueryFilter = {
+      user_data_128: 0n,
+      user_data_64: 0n,
+      user_data_32: 0,
+      ledger: 0,
+      code: 999,
+      timestamp_min: 0n,
+      timestamp_max: 0n,
+      limit: 8190,
+      flags: QueryFilterFlags.none,
+    }
+    var query: Account[] = await client.queryAccounts(filter)
+    assert.strictEqual(query.length, 10)
+
+    var timestamp = 0n;
+    for (var account of query) {
+      assert.ok(timestamp < account.timestamp);
+      timestamp = account.timestamp;
+
+      assert.strictEqual(account.code, filter.code);
+    }
+  }
+
+  {
+    // Querying accounts where:
+    // `code=999 ORDER BY timestamp DESC LIMIT 5`.
+    var filter: QueryFilter = {
+      user_data_128: 0n,
+      user_data_64: 0n,
+      user_data_32: 0,
+      ledger: 0,
+      code: 999,
+      timestamp_min: 0n,
+      timestamp_max: 0n,
+      limit: 5,
+      flags: QueryFilterFlags.reversed,
+    }
+
+    // First 5 items:
+    var query: Account[] = await client.queryAccounts(filter)
+    assert.strictEqual(query.length, 5)
+
+    var timestamp = 1n << 64n;
+    for (var account of query) {
+      assert.ok(timestamp > account.timestamp);
+      timestamp = account.timestamp;
+
+      assert.strictEqual(account.code, filter.code);
+    }
+
+    // Next 5 items:
+    filter.timestamp_max = timestamp - 1n
+    query = await client.queryAccounts(filter)
+    assert.strictEqual(query.length, 5)
+
+    for (var account of query) {
+      assert.ok(timestamp > account.timestamp);
+      timestamp = account.timestamp;
+
+      assert.strictEqual(account.code, filter.code);
+    }
+
+    // No more results:
+    filter.timestamp_max = timestamp - 1n
+    query = await client.queryAccounts(filter)
+    assert.strictEqual(query.length, 0)
+  }
+
+  {
+    // Not found:
+    var filter: QueryFilter = {
+      user_data_128: 0n,
+      user_data_64: 200n,
+      user_data_32: 10,
+      ledger: 0,
+      code: 0,
+      timestamp_min: 0n,
+      timestamp_max: 0n,
+      limit: 8190,
+      flags: QueryFilterFlags.none,
+    }
+    var query: Account[] = await client.queryAccounts(filter)
+    assert.strictEqual(query.length, 0)
+  }
+})
+
+test('can query transfers', async (): Promise<void> => {
+  {
+    const account: Account = {
+      id: id(),
+      debits_pending: 0n,
+      debits_posted: 0n,
+      credits_pending: 0n,
+      credits_posted: 0n,
+      user_data_128: 0n,
+      user_data_64: 0n,
+      user_data_32: 0,
+      reserved: 0,
+      ledger: 1,
+      code: 718,
+      flags: AccountFlags.none,
+      timestamp: 0n
+    }
+    const create_accounts_result = await client.createAccounts([account])
+    assert.deepStrictEqual(create_accounts_result, [])
+
+    var transfers_created : Transfer[] = [];
+    // Create transfers:
+    for (var i=0; i<10;i++) {
+      transfers_created.push({
+        id: id(),
+        debit_account_id: i % 2 == 0 ? account.id : accountA.id,
+        credit_account_id: i % 2 == 0 ? accountB.id : account.id,
+        amount: 100n,
+        user_data_128: i % 2 == 0 ? 1000n : 2000n,
+        user_data_64: i % 2 == 0 ? 100n : 200n,
+        user_data_32: i % 2 == 0 ? 10 : 20,
+        pending_id: 0n,
+        timeout: 0,
+        ledger: 1,
+        code: 999,
+        flags: 0,
+        timestamp: 0n,
+      })
+    }
+
+    const create_transfers_result = await client.createTransfers(transfers_created)
+    assert.deepStrictEqual(create_transfers_result, [])
+  }
+
+  {
+    // Querying transfers where:
+    // `user_data_128=1000 AND user_data_64=100 AND user_data_32=10
+    // AND code=999 AND ledger=1 ORDER BY timestamp ASC`.
+    var filter: QueryFilter = {
+      user_data_128: 1000n,
+      user_data_64: 100n,
+      user_data_32: 10,
+      ledger: 1,
+      code: 999,
+      timestamp_min: 0n,
+      timestamp_max: 0n,
+      limit: 8190,
+      flags: QueryFilterFlags.none,
+    }
+    var query: Transfer[] = await client.queryTransfers(filter)
+    assert.strictEqual(query.length, 5)
+
+    var timestamp = 0n;
+    for (var transfer of query) {
+      assert.ok(timestamp < transfer.timestamp);
+      timestamp = transfer.timestamp;
+
+      assert.strictEqual(transfer.user_data_128, filter.user_data_128);
+      assert.strictEqual(transfer.user_data_64, filter.user_data_64);
+      assert.strictEqual(transfer.user_data_32, filter.user_data_32);
+      assert.strictEqual(transfer.ledger, filter.ledger);
+      assert.strictEqual(transfer.code, filter.code);
+    }
+  }
+
+  {
+    // Querying transfers where:
+    // `user_data_128=2000 AND user_data_64=200 AND user_data_32=20
+    // AND code=999 AND ledger=1 ORDER BY timestamp DESC`.
+    var filter: QueryFilter = {
+      user_data_128: 2000n,
+      user_data_64: 200n,
+      user_data_32: 20,
+      ledger: 1,
+      code: 999,
+      timestamp_min: 0n,
+      timestamp_max: 0n,
+      limit: 8190,
+      flags: QueryFilterFlags.reversed,
+    }
+    var query: Transfer[] = await client.queryTransfers(filter)
+    assert.strictEqual(query.length, 5)
+
+    var timestamp = 1n << 64n;
+    for (var transfer of query) {
+      assert.ok(timestamp > transfer.timestamp);
+      timestamp = transfer.timestamp;
+
+      assert.strictEqual(transfer.user_data_128, filter.user_data_128);
+      assert.strictEqual(transfer.user_data_64, filter.user_data_64);
+      assert.strictEqual(transfer.user_data_32, filter.user_data_32);
+      assert.strictEqual(transfer.ledger, filter.ledger);
+      assert.strictEqual(transfer.code, filter.code);
+    }
+  }
+
+  {
+    // Querying transfers where:
+    // `code=999 ORDER BY timestamp ASC`
+    var filter: QueryFilter = {
+      user_data_128: 0n,
+      user_data_64: 0n,
+      user_data_32: 0,
+      ledger: 0,
+      code: 999,
+      timestamp_min: 0n,
+      timestamp_max: 0n,
+      limit: 8190,
+      flags: QueryFilterFlags.none,
+    }
+    var query: Transfer[] = await client.queryTransfers(filter)
+    assert.strictEqual(query.length, 10)
+
+    var timestamp = 0n;
+    for (var transfer of query) {
+      assert.ok(timestamp < transfer.timestamp);
+      timestamp = transfer.timestamp;
+
+      assert.strictEqual(transfer.code, filter.code);
+    }
+  }
+
+  {
+    // Querying transfers where:
+    // `code=999 ORDER BY timestamp DESC LIMIT 5`.
+    var filter: QueryFilter = {
+      user_data_128: 0n,
+      user_data_64: 0n,
+      user_data_32: 0,
+      ledger: 0,
+      code: 999,
+      timestamp_min: 0n,
+      timestamp_max: 0n,
+      limit: 5,
+      flags: QueryFilterFlags.reversed,
+    }
+
+    // First 5 items:
+    var query: Transfer[] = await client.queryTransfers(filter)
+    assert.strictEqual(query.length, 5)
+
+    var timestamp = 1n << 64n;
+    for (var transfer of query) {
+      assert.ok(timestamp > transfer.timestamp);
+      timestamp = transfer.timestamp;
+
+      assert.strictEqual(transfer.code, filter.code);
+    }
+
+    // Next 5 items:
+    filter.timestamp_max = timestamp - 1n
+    query = await client.queryTransfers(filter)
+    assert.strictEqual(query.length, 5)
+
+    for (var transfer of query) {
+      assert.ok(timestamp > transfer.timestamp);
+      timestamp = transfer.timestamp;
+
+      assert.strictEqual(transfer.code, filter.code);
+    }
+
+    // No more results:
+    filter.timestamp_max = timestamp - 1n
+    query = await client.queryTransfers(filter)
+    assert.strictEqual(query.length, 0)
+  }
+
+  {
+    // Not found:
+    var filter: QueryFilter = {
+      user_data_128: 0n,
+      user_data_64: 200n,
+      user_data_32: 10,
+      ledger: 0,
+      code: 0,
+      timestamp_min: 0n,
+      timestamp_max: 0n,
+      limit: 8190,
+      flags: QueryFilterFlags.none,
+    }
+    var query: Transfer[] = await client.queryTransfers(filter)
+    assert.strictEqual(query.length, 0)
+  }
+})
+
+test('query with invalid filter', async (): Promise<void> => {
+  // Invalid timestamp min:
+  var filter: QueryFilter = {
+    user_data_128: 0n,
+    user_data_64: 0n,
+    user_data_32: 0,
+    ledger: 0,
+    code: 0,
+    timestamp_min: (1n << 64n) - 1n, // ulong max value
+    timestamp_max: 0n,
+    limit: 8190,
+    flags: QueryFilterFlags.none,
+  }
+  assert.deepStrictEqual((await client.queryAccounts(filter)), [])
+  assert.deepStrictEqual((await client.queryTransfers(filter)), [])
+
+  // Invalid timestamp max:
+  filter = {
+    user_data_128: 0n,
+    user_data_64: 0n,
+    user_data_32: 0,
+    ledger: 0,
+    code: 0,
+    timestamp_min: 0n,
+    timestamp_max: (1n << 64n) - 1n, // ulong max value,
+    limit: 8190,
+    flags: QueryFilterFlags.none,
+  }
+  assert.deepStrictEqual((await client.queryAccounts(filter)), [])
+  assert.deepStrictEqual((await client.queryTransfers(filter)), [])
+
+  // Invalid timestamp range:
+  filter = {
+    user_data_128: 0n,
+    user_data_64: 0n,
+    user_data_32: 0,
+    ledger: 0,
+    code: 0,
+    timestamp_min: (1n << 64n) - 2n, // ulong max - 1
+    timestamp_max: 1n,
+    limit: 8190,
+    flags: QueryFilterFlags.none,
+  }
+  assert.deepStrictEqual((await client.queryAccounts(filter)), [])
+  assert.deepStrictEqual((await client.queryTransfers(filter)), [])
+
+  // Zero limit:
+  filter = {
+    user_data_128: 0n,
+    user_data_64: 0n,
+    user_data_32: 0,
+    ledger: 0,
+    code: 0,
+    timestamp_min: 0n,
+    timestamp_max: 0n,
+    limit: 0,
+    flags: QueryFilterFlags.none,
+  }
+  assert.deepStrictEqual((await client.queryAccounts(filter)), [])
+  assert.deepStrictEqual((await client.queryTransfers(filter)), [])
+
+  // Invalid flags:
+  filter = {
+    user_data_128: 0n,
+    user_data_64: 0n,
+    user_data_32: 0,
+    ledger: 0,
+    code: 0,
+    timestamp_min: 0n,
+    timestamp_max: 0n,
+    limit: 0,
+    flags: 0xFFFF,
+  }
+  assert.deepStrictEqual((await client.queryAccounts(filter)), [])
+  assert.deepStrictEqual((await client.queryTransfers(filter)), [])
 })
 
 async function main () {
