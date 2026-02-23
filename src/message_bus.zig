@@ -775,7 +775,7 @@ pub fn MessageBusType(comptime IO: type) type {
             return true;
         }
 
-        /// Attempt moving messages from recv buffer into replcia for processing. Called when recv
+        /// Attempt moving messages from recv buffer into replica for processing. Called when recv
         /// syscall completes, or when a replica signals readiness to consume previously suspended
         /// messages.
         fn recv_buffer_drain(bus: *MessageBus, connection: *Connection) void {
