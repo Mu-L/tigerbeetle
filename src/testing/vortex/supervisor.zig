@@ -333,7 +333,6 @@ const Supervisor = struct {
                     replica_pause,
                     replica_resume,
                     network_delay,
-                    network_lose,
                     network_corrupt,
                     network_heal,
                     quiesce,
@@ -346,7 +345,6 @@ const Supervisor = struct {
                     .replica_pause = if (running_replicas.len > 0) 3 else 0,
                     .replica_resume = if (paused_replicas.len > 0) 10 else 0,
                     .network_delay = if (supervisor.network.faults.delay == null) 3 else 0,
-                    .network_lose = if (supervisor.network.faults.lose == null) 3 else 0,
                     .network_corrupt = if (supervisor.network.faults.corrupt == null) 3 else 0,
                     .network_heal = if (!supervisor.network.faults.is_healed()) 10 else 0,
                     .quiesce = if (faulty_replica_count > 0 or
@@ -385,11 +383,6 @@ const Supervisor = struct {
                             .jitter_ms = @min(time_ms, 50),
                         };
                         log.info("injecting network delays: {any}", .{supervisor.network.faults});
-                    },
-                    .network_lose => {
-                        supervisor.network.faults.lose =
-                            ratio(supervisor.prng.range_inclusive(u8, 1, 10), 100);
-                        log.info("injecting network loss: {any}", .{supervisor.network.faults});
                     },
                     .network_corrupt => {
                         supervisor.network.faults.corrupt =
