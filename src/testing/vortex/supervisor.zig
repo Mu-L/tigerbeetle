@@ -296,15 +296,13 @@ const Supervisor = struct {
                 const too_slow_request = supervisor.workload.find_slow_request_since(start_ns);
 
                 if (no_finished_requests) {
-                    log.err("liveness check: no finished requests after {d} seconds", .{
+                    fatal(.liveness, "liveness check: no finished requests after {d} seconds", .{
                         constants.vortex.liveness_requirement_seconds,
                     });
-                    return error.TestFailed;
                 }
 
                 if (too_slow_request) |_| {
-                    log.err("liveness check: too slow request", .{});
-                    return error.TestFailed;
+                    fatal(.request_slow, "liveness check: too slow request", .{});
                 }
             }
 
@@ -440,15 +438,18 @@ const Supervisor = struct {
                             // success or failure.
                             std.posix.exit(@intCast(128 + term.Signal));
                         } else {
-                            return error.TestFailed;
+                            fatal(.replica_exit_result, "replica exited with: {}", .{term});
                         }
                     }
                 }
             }
 
             if (supervisor.workload.process.wait_nonblocking()) |code| {
-                log.err("workload terminated by itself: code={}", .{code});
-                return error.TestFailed;
+                fatal(
+                    .workload_exit_early,
+                    "workload terminated by itself: code={}",
+                    .{code},
+                );
             }
         } else blk: {
             log.info("terminating workload due to max duration", .{});
@@ -460,14 +461,20 @@ const Supervisor = struct {
                 switch (signal) {
                     std.posix.SIG.KILL => log.info("workload terminated as requested", .{}),
                     else => {
-                        log.err("workload exited unexpectedly with signal {d}", .{signal});
-                        return error.TestFailed;
+                        fatal(
+                            .workload_exit_result,
+                            "workload exited unexpectedly with signal {d}",
+                            .{signal},
+                        );
                     },
                 }
             },
             else => {
-                log.err("unexpected workload result: {any}", .{workload_result});
-                return error.TestFailed;
+                fatal(
+                    .workload_exit_result,
+                    "unexpected workload result: {any}",
+                    .{workload_result},
+                );
             },
         }
     }
@@ -724,7 +731,7 @@ const Workload = struct {
         if (workload.process.state != .running) return;
 
         const count = result catch |err| {
-            std.debug.panic("couldn't read from workload stdout: {}", .{err});
+            fatal(.workload_read_error, "couldn't read from workload stdout: {}", .{err});
         };
 
         workload.read_progress += count;
@@ -763,3 +770,23 @@ const Workload = struct {
         return null;
     }
 };
+
+const FatalReason = enum(u8) {
+    workload_exit_early = 10,
+    workload_exit_result = 11,
+    workload_read_error = 12,
+    replica_exit_result = 13,
+    liveness = 14,
+    request_slow = 15,
+
+    pub fn exit_status(reason: FatalReason) u8 {
+        return @intFromEnum(reason);
+    }
+};
+
+fn fatal(reason: FatalReason, comptime fmt: []const u8, args: anytype) noreturn {
+    log.err(fmt, args);
+    const status = reason.exit_status();
+    assert(status != 0);
+    std.process.exit(status);
+}
