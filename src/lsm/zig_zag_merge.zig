@@ -170,7 +170,6 @@ pub fn ZigZagMergeIteratorType(
                     tour_total += 1;
                     tour_equal += 1;
                 }
-                if (tour_total == it.streams_count) break;
             }
             assert(tour_total == tour_equal + tour_pending);
             assert(tour_total == it.streams_count);
