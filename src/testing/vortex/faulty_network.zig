@@ -70,11 +70,13 @@ const Pipe = struct {
     ) void {
         assert(pipe.connection.state == .proxying);
         assert(pipe.status == .idle);
+        assert(pipe.input == null);
+        assert(pipe.output == null);
+        assert(pipe.recv_size == 0);
+        assert(pipe.send_size == 0);
 
         pipe.input = input;
         pipe.output = output;
-        pipe.recv_size = 0;
-        pipe.send_size = 0;
 
         // Kick off the recv/send loop.
         pipe.recv();
@@ -440,6 +442,9 @@ const Connection = struct {
         });
         connection.state = .free;
         connection.remote_fd = null;
+        connection.remote_address = null;
+        connection.origin_to_remote_pipe = .{ .io = connection.io, .connection = connection };
+        connection.remote_to_origin_pipe = .{ .io = connection.io, .connection = connection };
     }
 };
 
@@ -549,6 +554,9 @@ pub const Network = struct {
                 if (connection.state == .free) {
                     assert(connection.origin_to_remote_pipe.status == .idle);
                     assert(connection.remote_to_origin_pipe.status == .idle);
+                    assert(connection.origin_fd == null);
+                    assert(connection.remote_fd == null);
+                    assert(connection.remote_address == null);
 
                     log.debug("accepting ({d},{d})", .{
                         connection.replica_index,
@@ -557,8 +565,6 @@ pub const Network = struct {
 
                     connection.state = .accepting;
                     connection.remote_address = proxy.remote_address;
-                    connection.origin_fd = null;
-                    connection.remote_fd = null;
 
                     network.io.accept(
                         *Connection,
