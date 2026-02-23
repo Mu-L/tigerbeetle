@@ -310,8 +310,8 @@ const Connection = struct {
             });
             return connection.try_close();
         };
-        connection.remote_fd = remote_fd;
 
+        connection.remote_fd = remote_fd;
         connection.state = .connecting;
 
         connection.io.connect(
@@ -362,25 +362,24 @@ const Connection = struct {
                 connection.connection_index,
             });
             connection.state = .closing;
-            std.posix.shutdown(connection.origin_fd.?, .both) catch |err| {
-                switch (err) {
-                    error.SocketNotConnected => {},
-                    else => log.warn("shutdown origin_fd ({d},{d}) failed: {}", .{
-                        connection.replica_index, connection.connection_index, err,
-                    }),
-                }
+            std.posix.shutdown(connection.origin_fd.?, .both) catch |err| switch (err) {
+                error.SocketNotConnected => {},
+                else => log.warn("shutdown origin_fd ({d},{d}) failed: {}", .{
+                    connection.replica_index, connection.connection_index, err,
+                }),
             };
-            std.posix.shutdown(connection.remote_fd.?, .both) catch |err| {
-                switch (err) {
-                    error.SocketNotConnected => {},
-                    else => log.warn("shutdown remote_fd ({d},{d}) failed: {}", .{
-                        connection.replica_index, connection.connection_index, err,
-                    }),
-                }
+            std.posix.shutdown(connection.remote_fd.?, .both) catch |err| switch (err) {
+                error.SocketNotConnected => {},
+                else => log.warn("shutdown remote_fd ({d},{d}) failed: {}", .{
+                    connection.replica_index, connection.connection_index, err,
+                }),
             };
         }
 
-        if (!has_inflight_operations) {
+        if (has_inflight_operations) {
+            // Network.tick() will keep calling try_close().
+            assert(connection.state == .closing);
+        } else {
             // Kick off the close sequence.
             connection.state = .closing_origin;
             connection.io.close(
@@ -390,10 +389,7 @@ const Connection = struct {
                 &connection.close_completion,
                 connection.origin_fd.?,
             );
-            return;
         }
-
-        assert(connection.state == .closing);
     }
 
     fn on_close_origin(
