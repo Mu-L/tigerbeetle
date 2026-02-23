@@ -717,6 +717,10 @@ pub fn MessageBusType(comptime IO: type) type {
                     // * client_likely  → client
                     assert(connection.peer == .unknown or connection.peer == .client_likely);
 
+                    if (connection.peer == .client_likely) {
+                        assert(connection.peer.client_likely == client_id);
+                    }
+
                     // If there is a connection to this client, terminate and replace it.
                     const result = bus.clients.getOrPutAssumeCapacity(client_id);
                     if (result.found_existing) {
@@ -737,7 +741,7 @@ pub fn MessageBusType(comptime IO: type) type {
                     }
 
                     result.value_ptr.* = connection;
-                    log.info("{}: set_and_verify_peer connection from client={}", .{
+                    log.info("{}: set_and_verify_peer: connection from client={}", .{
                         bus.id,
                         client_id,
                     });
@@ -756,7 +760,7 @@ pub fn MessageBusType(comptime IO: type) type {
                                 bus.clients.getOrPutAssumeCapacity(client_id);
                             if (!result.found_existing) {
                                 result.value_ptr.* = connection;
-                                log.info("{}: set_and_verify_peer connection from " ++
+                                log.info("{}: set_and_verify_peer: connection from " ++
                                     "client_likely={}", .{ bus.id, client_id });
                             }
                         },
@@ -1065,6 +1069,7 @@ pub fn MessageBusType(comptime IO: type) type {
             assert(connection.recv_buffer == null);
             assert(connection.send_queue.empty());
             assert(connection.fd == null);
+            assert(!bus.connections_suspended.contains(connection));
 
             result catch |err| {
                 log.warn("{}: on_close: to={} {}", .{ bus.id, connection.peer, err });
