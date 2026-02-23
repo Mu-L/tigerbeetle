@@ -40,7 +40,8 @@ pub fn CompositeKeyType(comptime Field: type) type {
             // Little-endian:
             @bitSizeOf(u64) + @bitSizeOf(Field) + @bitSizeOf(Pad),
         );
-
+// NB: ideally, we should swap `field` and `timestamp` here to  maintain
+// little-endian order throughout, but we are constrained by existing data.
         field: Field align(field_bitsize_alignment),
         /// The most significant bit must be unset as it is used to indicate a tombstone.
         timestamp: u64,
