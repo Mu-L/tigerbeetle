@@ -70,11 +70,13 @@ const Pipe = struct {
     ) void {
         assert(pipe.connection.state == .proxying);
         assert(pipe.status == .idle);
+        assert(pipe.input == null);
+        assert(pipe.output == null);
+        assert(pipe.recv_size == 0);
+        assert(pipe.send_size == 0);
 
         pipe.input = input;
         pipe.output = output;
-        pipe.recv_size = 0;
-        pipe.send_size = 0;
 
         // Kick off the recv/send loop.
         pipe.recv();
@@ -94,16 +96,19 @@ const Pipe = struct {
         pipe.connection.io.recv(
             *Pipe,
             pipe,
-            on_recv,
+            recv_callback,
             &pipe.recv_completion,
             pipe.input.?,
             pipe.buffer[0..],
         );
     }
 
-    fn on_recv(pipe: *Pipe, _: *IO.Completion, result: IO.RecvError!usize) void {
+    fn recv_callback(pipe: *Pipe, _: *IO.Completion, result: IO.RecvError!usize) void {
         assert(pipe.recv_size == 0);
         assert(pipe.send_size == 0);
+        assert(pipe.connection.state != .free);
+        assert(pipe.connection.state != .accepting);
+        assert(pipe.connection.state != .connecting);
 
         assert(pipe.status == .recv);
         pipe.status = .idle;
@@ -180,14 +185,23 @@ const Pipe = struct {
 
             assert(pipe.status == .idle);
             pipe.status = .send_timeout;
-            pipe.io.timeout(*Pipe, pipe, on_timeout, &pipe.send_completion, timeout_duration_ns);
+            pipe.io.timeout(
+                *Pipe,
+                pipe,
+                timeout_callback,
+                &pipe.send_completion,
+                timeout_duration_ns,
+            );
         } else {
             pipe.send();
         }
     }
 
-    fn on_timeout(pipe: *Pipe, _: *IO.Completion, result: IO.TimeoutError!void) void {
+    fn timeout_callback(pipe: *Pipe, _: *IO.Completion, result: IO.TimeoutError!void) void {
         assert(pipe.status == .send_timeout);
+        assert(pipe.connection.state != .free);
+        assert(pipe.connection.state != .accepting);
+        assert(pipe.connection.state != .connecting);
         pipe.status = .idle;
 
         if (pipe.connection.state != .proxying) return;
@@ -206,15 +220,18 @@ const Pipe = struct {
         pipe.io.send(
             *Pipe,
             pipe,
-            on_send,
+            send_callback,
             &pipe.send_completion,
             pipe.output.?,
             pipe.buffer[pipe.send_size..pipe.recv_size],
         );
     }
 
-    fn on_send(pipe: *Pipe, _: *IO.Completion, result: IO.SendError!usize) void {
+    fn send_callback(pipe: *Pipe, _: *IO.Completion, result: IO.SendError!usize) void {
         assert(pipe.send_size < pipe.recv_size);
+        assert(pipe.connection.state != .free);
+        assert(pipe.connection.state != .accepting);
+        assert(pipe.connection.state != .connecting);
 
         assert(pipe.status == .send);
         pipe.status = .idle;
@@ -268,20 +285,14 @@ const Connection = struct {
     connect_completion: IO.Completion = undefined,
     close_completion: IO.Completion = undefined,
 
-    fn on_accept(
+    fn accept_callback(
         connection: *Connection,
         _: *IO.Completion,
         result: IO.AcceptError!std.posix.socket_t,
     ) void {
         assert(connection.state == .accepting);
-        defer assert(connection.state == .connecting);
-
         assert(connection.origin_fd == null);
-        defer assert(connection.origin_fd != null);
-
         assert(connection.remote_fd == null);
-        defer assert(connection.remote_fd != null);
-
         assert(connection.remote_address != null);
 
         const fd = result catch |err| {
@@ -305,21 +316,21 @@ const Connection = struct {
             });
             return connection.try_close();
         };
-        connection.remote_fd = remote_fd;
 
+        connection.remote_fd = remote_fd;
         connection.state = .connecting;
 
         connection.io.connect(
             *Connection,
             connection,
-            Connection.on_connect,
+            Connection.connect_callback,
             &connection.connect_completion,
             connection.remote_fd.?,
             connection.remote_address.?,
         );
     }
 
-    fn on_connect(
+    fn connect_callback(
         connection: *Connection,
         _: *IO.Completion,
         result: IO.ConnectError!void,
@@ -357,41 +368,37 @@ const Connection = struct {
                 connection.connection_index,
             });
             connection.state = .closing;
-            std.posix.shutdown(connection.origin_fd.?, .both) catch |err| {
-                switch (err) {
-                    error.SocketNotConnected => {},
-                    else => log.warn("shutdown origin_fd ({d},{d}) failed: {}", .{
-                        connection.replica_index, connection.connection_index, err,
-                    }),
-                }
+            std.posix.shutdown(connection.origin_fd.?, .both) catch |err| switch (err) {
+                error.SocketNotConnected => {},
+                else => log.warn("shutdown origin_fd ({d},{d}) failed: {}", .{
+                    connection.replica_index, connection.connection_index, err,
+                }),
             };
-            std.posix.shutdown(connection.remote_fd.?, .both) catch |err| {
-                switch (err) {
-                    error.SocketNotConnected => {},
-                    else => log.warn("shutdown remote_fd ({d},{d}) failed: {}", .{
-                        connection.replica_index, connection.connection_index, err,
-                    }),
-                }
+            std.posix.shutdown(connection.remote_fd.?, .both) catch |err| switch (err) {
+                error.SocketNotConnected => {},
+                else => log.warn("shutdown remote_fd ({d},{d}) failed: {}", .{
+                    connection.replica_index, connection.connection_index, err,
+                }),
             };
         }
 
-        if (!has_inflight_operations) {
+        if (has_inflight_operations) {
+            // Network.tick() will keep calling try_close().
+            assert(connection.state == .closing);
+        } else {
             // Kick off the close sequence.
             connection.state = .closing_origin;
             connection.io.close(
                 *Connection,
                 connection,
-                on_close_origin,
+                close_origin_callback,
                 &connection.close_completion,
                 connection.origin_fd.?,
             );
-            return;
         }
-
-        assert(connection.state == .closing);
     }
 
-    fn on_close_origin(
+    fn close_origin_callback(
         connection: *Connection,
         _: *IO.Completion,
         result: IO.CloseError!void,
@@ -403,7 +410,7 @@ const Connection = struct {
         defer assert(connection.origin_fd == null);
 
         result catch |err| {
-            log.warn("on_close_origin ({d},{d}) error: {any}", .{
+            log.warn("close_origin_callback ({d},{d}) error: {any}", .{
                 connection.replica_index,
                 connection.connection_index,
                 err,
@@ -415,13 +422,13 @@ const Connection = struct {
         connection.io.close(
             *Connection,
             connection,
-            on_close_remote,
+            close_remote_callback,
             &connection.close_completion,
             connection.remote_fd.?,
         );
     }
 
-    fn on_close_remote(
+    fn close_remote_callback(
         connection: *Connection,
         _: *IO.Completion,
         result: IO.CloseError!void,
@@ -433,19 +440,22 @@ const Connection = struct {
         defer assert(connection.remote_fd == null);
 
         result catch |err| {
-            log.warn("on_close_remote ({d},{d}) error: {any}", .{
+            log.warn("close_remote_callback ({d},{d}) error: {any}", .{
                 connection.replica_index,
                 connection.connection_index,
                 err,
             });
         };
 
-        log.debug("on_close_remote ({d},{d}): marking connection as free", .{
+        log.debug("close_remote_callback ({d},{d}): marking connection as free", .{
             connection.replica_index,
             connection.connection_index,
         });
         connection.state = .free;
         connection.remote_fd = null;
+        connection.remote_address = null;
+        connection.origin_to_remote_pipe = .{ .io = connection.io, .connection = connection };
+        connection.remote_to_origin_pipe = .{ .io = connection.io, .connection = connection };
     }
 };
 
@@ -543,8 +553,10 @@ pub const Network = struct {
     }
 
     pub fn tick(network: *Network) void {
-        for (network.proxies) |*proxy| {
+        for (network.proxies, 0..) |*proxy, replica_index| {
             for (&proxy.connections) |*connection| {
+                assert(connection.replica_index == replica_index);
+
                 if (connection.state == .closing) {
                     connection.try_close();
                     continue;
@@ -555,6 +567,9 @@ pub const Network = struct {
                 if (connection.state == .free) {
                     assert(connection.origin_to_remote_pipe.status == .idle);
                     assert(connection.remote_to_origin_pipe.status == .idle);
+                    assert(connection.origin_fd == null);
+                    assert(connection.remote_fd == null);
+                    assert(connection.remote_address == null);
 
                     log.debug("accepting ({d},{d})", .{
                         connection.replica_index,
@@ -563,13 +578,11 @@ pub const Network = struct {
 
                     connection.state = .accepting;
                     connection.remote_address = proxy.remote_address;
-                    connection.origin_fd = null;
-                    connection.remote_fd = null;
 
                     network.io.accept(
                         *Connection,
                         connection,
-                        Connection.on_accept,
+                        Connection.accept_callback,
                         &connection.accept_completion,
                         proxy.accept_fd,
                     );
