@@ -126,9 +126,8 @@ pub fn ZigZagMergeIteratorType(
 
             // TODO: Find a way to add a safety counter here.
             var tour_index: u32 = 0;
-            while (tour_total < it.streams_count) : (tour_index += 1) {
-                tour_index %= it.streams_count;
-
+            while (tour_total < it.streams_count) //
+            : (tour_index = (tour_index + 1) % it.streams_count) {
                 assert(tour_total == tour_equal + tour_pending);
 
                 // Optimization: don't re-probe already pending streams,
