@@ -106,6 +106,9 @@ const Pipe = struct {
     fn on_recv(pipe: *Pipe, _: *IO.Completion, result: IO.RecvError!usize) void {
         assert(pipe.recv_size == 0);
         assert(pipe.send_size == 0);
+        assert(pipe.connection.state != .free);
+        assert(pipe.connection.state != .accepting);
+        assert(pipe.connection.state != .connecting);
 
         assert(pipe.status == .recv);
         pipe.status = .idle;
@@ -190,6 +193,9 @@ const Pipe = struct {
 
     fn on_timeout(pipe: *Pipe, _: *IO.Completion, result: IO.TimeoutError!void) void {
         assert(pipe.status == .send_timeout);
+        assert(pipe.connection.state != .free);
+        assert(pipe.connection.state != .accepting);
+        assert(pipe.connection.state != .connecting);
         pipe.status = .idle;
 
         if (pipe.connection.state != .proxying) return;
@@ -217,6 +223,9 @@ const Pipe = struct {
 
     fn on_send(pipe: *Pipe, _: *IO.Completion, result: IO.SendError!usize) void {
         assert(pipe.send_size < pipe.recv_size);
+        assert(pipe.connection.state != .free);
+        assert(pipe.connection.state != .accepting);
+        assert(pipe.connection.state != .connecting);
 
         assert(pipe.status == .send);
         pipe.status = .idle;
@@ -542,8 +551,10 @@ pub const Network = struct {
     }
 
     pub fn tick(network: *Network) void {
-        for (network.proxies) |*proxy| {
+        for (network.proxies, 0..) |*proxy, replica_index| {
             for (&proxy.connections) |*connection| {
+                assert(connection.replica_index == replica_index);
+
                 if (connection.state == .closing) {
                     connection.try_close();
                     continue;
