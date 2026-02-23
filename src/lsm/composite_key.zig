@@ -37,9 +37,12 @@ pub fn CompositeKeyType(comptime Field: type) type {
 
         pub const Key = std.meta.Int(
             .unsigned,
+            // Little-endian:
             @bitSizeOf(u64) + @bitSizeOf(Field) + @bitSizeOf(Pad),
         );
 
+        // NB: ideally, we should swap `field` and `timestamp` here to  maintain
+        // little-endian order throughout, but we are constrained by existing data.
         field: Field align(field_bitsize_alignment),
         /// The most significant bit must be unset as it is used to indicate a tombstone.
         timestamp: u64,
@@ -65,7 +68,7 @@ pub fn CompositeKeyType(comptime Field: type) type {
                 return value.timestamp & ~tombstone_bit;
             } else {
                 comptime assert(@sizeOf(Key) == @sizeOf(Field) * 2);
-                return @as(Key, value.timestamp & ~tombstone_bit) | (@as(Key, value.field) << 64);
+                return (@as(Key, value.field) << 64) | @as(Key, value.timestamp & ~tombstone_bit);
             }
         }
 
