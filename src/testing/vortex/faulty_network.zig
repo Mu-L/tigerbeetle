@@ -274,14 +274,8 @@ const Connection = struct {
         result: IO.AcceptError!std.posix.socket_t,
     ) void {
         assert(connection.state == .accepting);
-        defer assert(connection.state == .connecting);
-
         assert(connection.origin_fd == null);
-        defer assert(connection.origin_fd != null);
-
         assert(connection.remote_fd == null);
-        defer assert(connection.remote_fd != null);
-
         assert(connection.remote_address != null);
 
         const fd = result catch |err| {
