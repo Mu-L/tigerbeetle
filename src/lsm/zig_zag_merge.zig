@@ -17,7 +17,7 @@ pub fn ZigZagMergeIteratorType(
     comptime Key: type,
     comptime Value: type,
     comptime key_from_value: fn (*const Value) callconv(.@"inline") Key,
-    comptime streams_max: u32,
+    comptime streams_max: u8,
     /// Peek the next key in the stream identified by `stream_index`.
     /// For example, `peek(stream_index=2)` returns `user_streams[2][0]`.
     /// Returns `Pending` if the stream was consumed and must be refilled
@@ -118,6 +118,8 @@ pub fn ZigZagMergeIteratorType(
                 .descending => std.math.maxInt(Key),
             };
 
+            var pending: stdx.BitSetType(streams_max) = .{};
+
             var tour_index: u32 = 0;
             var tour_total: u32 = 0;
             var tour_equal: u32 = 0;
@@ -134,10 +136,20 @@ pub fn ZigZagMergeIteratorType(
                 assert(tour_total <= it.streams_count);
                 if (tour_total == it.streams_count) break;
 
+                // Optimization: don't re-probe already pending streams,
+                // until the very end, when the final candidate is known.
+                if (pending.is_set(tour_index)) {
+                    tour_total += 1;
+                    tour_pending += 1;
+                    continue;
+                }
+
                 stream_probe(it.context, tour_index, candidate);
                 const key: Key = stream_peek(it.context, tour_index) catch |err| {
                     switch (err) {
                         error.Pending => {
+                            assert(!pending.is_set(tour_index));
+                            pending.set(tour_index);
                             tour_total += 1;
                             tour_pending += 1;
                             continue;
@@ -153,9 +165,7 @@ pub fn ZigZagMergeIteratorType(
                 }
 
                 if (it.direction.cmp(candidate, .@"<", key)) {
-                    // The guess turned out to be wrong, reset the tour.
-                    // Importantly, we will re-probe all "preceding"
-                    // streams if we are to complete this new tour.
+                    // The stream is strictly ahead, restart a tour with a new candidate.
                     candidate = key;
                     tour_total = 1;
                     tour_equal = 1;
@@ -166,9 +176,24 @@ pub fn ZigZagMergeIteratorType(
                     tour_equal += 1;
                 }
                 if (tour_total == it.streams_count) break;
-            } else @panic("zig-zag loop outrun safety counter");
+            } else @panic("zig-zag loop ran away");
             assert(tour_total == tour_equal + tour_pending);
             assert(tour_total == it.streams_count);
+            assert(tour_pending == pending.count());
+
+            // Completing the optimization, probe pending streams one last time.
+            // We minize probe & peek virtual function calls, keeping IO optimal.
+            for (0..it.streams_count) |index_usize| {
+                const stream_index: u32 = @intCast(index_usize);
+                if (pending.is_set(stream_index)) {
+                    pending.unset(stream_index);
+                    stream_probe(it.context, stream_index, candidate);
+                    assert(stream_peek(it.context, stream_index) == Pending.Pending);
+                } else {
+                    assert((stream_peek(it.context, stream_index) catch unreachable) == candidate);
+                }
+            }
+            assert(pending.count() == 0);
 
             if (tour_pending > 0) return error.Pending;
 
