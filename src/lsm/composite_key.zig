@@ -37,6 +37,7 @@ pub fn CompositeKeyType(comptime Field: type) type {
 
         pub const Key = std.meta.Int(
             .unsigned,
+            // Little-endian:
             @bitSizeOf(u64) + @bitSizeOf(Field) + @bitSizeOf(Pad),
         );
 
@@ -65,7 +66,7 @@ pub fn CompositeKeyType(comptime Field: type) type {
                 return value.timestamp & ~tombstone_bit;
             } else {
                 comptime assert(@sizeOf(Key) == @sizeOf(Field) * 2);
-                return @as(Key, value.timestamp & ~tombstone_bit) | (@as(Key, value.field) << 64);
+                return (@as(Key, value.field) << 64) | @as(Key, value.timestamp & ~tombstone_bit);
             }
         }
 
