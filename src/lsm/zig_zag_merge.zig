@@ -120,21 +120,16 @@ pub fn ZigZagMergeIteratorType(
 
             var pending: stdx.BitSetType(streams_max) = .{};
 
-            var tour_index: u32 = 0;
             var tour_total: u32 = 0;
             var tour_equal: u32 = 0;
             var tour_pending: u32 = 0;
 
-            // Ideally, the bound should be computed dynamically,
-            // as a sum of streams' bounds, but even a big magic
-            // constant is better than `maxInt(u32)`.
-            const safety_bound = 10_000_000;
-            for (0..safety_bound) |index| {
-                tour_index = @as(u32, @intCast(index)) % it.streams_count;
+            // TODO: Find a way to add a safety counter here.
+            var tour_index: u32 = 0;
+            while (tour_total < it.streams_count) : (tour_index += 1) {
+                tour_index %= it.streams_count;
 
                 assert(tour_total == tour_equal + tour_pending);
-                assert(tour_total <= it.streams_count);
-                if (tour_total == it.streams_count) break;
 
                 // Optimization: don't re-probe already pending streams,
                 // until the very end, when the final candidate is known.
@@ -176,7 +171,7 @@ pub fn ZigZagMergeIteratorType(
                     tour_equal += 1;
                 }
                 if (tour_total == it.streams_count) break;
-            } else @panic("zig-zag loop ran away");
+            }
             assert(tour_total == tour_equal + tour_pending);
             assert(tour_total == it.streams_count);
             assert(tour_pending == pending.count());
