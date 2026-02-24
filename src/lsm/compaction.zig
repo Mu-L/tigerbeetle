@@ -255,17 +255,14 @@ pub fn ResourcePoolType(comptime Grid: type) type {
     };
 }
 
-pub fn CompactionType(
-    comptime Table: type,
-    comptime Tree: type,
-    comptime Storage: type,
-) type {
+pub fn CompactionType(comptime Tree: type, comptime Storage: type) type {
     return struct {
         const Compaction = @This();
 
         const Grid = GridType(Storage);
         const ResourcePool = ResourcePoolType(Grid);
 
+        const Table = Tree.Table;
         const Manifest = ManifestType(Table, Storage);
         const TableInfo = TableInfoType(Table);
         const TableInfoReference = Manifest.TableInfoReference;
