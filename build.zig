@@ -2272,6 +2272,9 @@ fn fetch(b: *std.Build, options: struct {
     file_name: []const u8,
     hash: ?[]const u8,
 }) std.Build.LazyPath {
+    const download = b.addSystemCommand(&.{ b.graph.zig_exe, "fetch", options.url });
+    download.setName(b.fmt("fetch {s}", .{options.url}));
+
     const copy_from_cache = b.addRunArtifact(b.addExecutable(.{
         .name = "copy-from-cache",
         .root_module = b.createModule(.{
@@ -2313,9 +2316,7 @@ fn fetch(b: *std.Build, options: struct {
     copy_from_cache.addArg(
         b.graph.global_cache_root.join(b.allocator, &.{"p"}) catch @panic("OOM"),
     );
-    copy_from_cache.addFileArg(
-        b.addSystemCommand(&.{ b.graph.zig_exe, "fetch", options.url }).captureStdOut(),
-    );
+    copy_from_cache.addFileArg(download.captureStdOut());
     copy_from_cache.addArg(options.file_name);
     const result = copy_from_cache.addOutputFileArg(options.file_name);
     if (options.hash) |hash| {
