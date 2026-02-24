@@ -34,19 +34,17 @@ const Faults = struct {
     };
 
     delay: ?Delay = null,
-    lose: ?Ratio = null,
     corrupt: ?Ratio = null,
 
     // Others not implemented: duplication, reordering, rate
 
     pub fn heal(faults: *Faults) void {
         faults.delay = null;
-        faults.lose = null;
         faults.corrupt = null;
     }
 
     pub fn is_healed(faults: *const Faults) bool {
-        return faults.delay == null and faults.lose == null and faults.corrupt == null;
+        return faults.delay == null and faults.corrupt == null;
     }
 };
 
@@ -128,18 +126,6 @@ const Pipe = struct {
         if (pipe.recv_size == 0) {
             // Zero bytes means EOF.
             return pipe.connection.try_close();
-        }
-
-        if (pipe.connection.network.faults.lose) |lose| {
-            if (pipe.connection.network.prng.chance(lose)) {
-                log.debug("losing {d} bytes ({d},{d})", .{
-                    pipe.recv_size,
-                    pipe.connection.replica_index,
-                    pipe.connection.connection_index,
-                });
-                pipe.recv();
-                return;
-            }
         }
 
         if (pipe.connection.network.faults.corrupt) |corrupt| {

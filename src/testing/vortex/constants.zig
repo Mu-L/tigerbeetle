@@ -5,10 +5,10 @@ pub const vsr = @import("../../constants.zig");
 
 pub const vortex = struct {
     pub const cluster_id = 0;
-    pub const connections_count_max = @divFloor(
-        constants.vsr.clients_max,
-        constants.vsr.replicas_max,
-    );
+    // Maximum number of connections *per replica*.
+    // -1 since replicas don't connect to themselves.
+    // +1 for the single driver/client.
+    pub const connections_count_max = (vsr.replicas_max - 1) + 1;
 
     // We allow the cluster to not make progress processing requests for this amount of time.
     // After that it's considered a test failure.
