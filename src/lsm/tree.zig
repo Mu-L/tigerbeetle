@@ -54,7 +54,7 @@ pub fn TreeType(comptime TreeTable: type, comptime Storage: type) type {
         const KeyRange = Manifest.KeyRange;
 
         const CompactionType = @import("compaction.zig").CompactionType;
-        pub const Compaction = CompactionType(Table, Tree, Storage);
+        pub const Compaction = CompactionType(Tree, Storage);
 
         pub const LookupMemoryResult = union(enum) {
             negative,
