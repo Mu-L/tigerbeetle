@@ -1023,7 +1023,7 @@ pub fn ReplicaType(
             assert(!self.grid.blocks_missing.repairing_tables());
             self.assert_free_set_consistent();
 
-            log.debug("{}: state_machine_open_callback: sync_ops={}..{}", .{
+            log.info("{}: state_machine_open_callback: sync_ops={}..{}", .{
                 self.log_prefix(),
                 self.superblock.working.vsr_state.sync_op_min,
                 self.superblock.working.vsr_state.sync_op_max,
@@ -1456,7 +1456,7 @@ pub fn ReplicaType(
             };
             self.routing.view_change(self.view);
 
-            log.debug("{}: init: replica_count={} quorum_view_change={} quorum_replication={} " ++
+            log.info("{}: init: replica_count={} quorum_view_change={} quorum_replication={} " ++
                 "release={}", .{
                 self.log_prefix(),
                 self.replica_count,
@@ -2555,7 +2555,7 @@ pub fn ReplicaType(
                 });
                 return;
             }
-            log.debug("{}: on_start_view_change: view={} quorum received (replicas={b:0>6})", .{
+            log.info("{}: on_start_view_change: view={} quorum received (replicas={b:0>6})", .{
                 self.log_prefix(),
                 self.view,
                 self.start_view_change_from_all_replicas.bits,
@@ -2635,7 +2635,7 @@ pub fn ReplicaType(
                 .complete_valid => |*quorum_headers| quorum_headers.next().?.op,
             };
 
-            log.debug("{}: on_do_view_change: view={} quorum received", .{
+            log.info("{}: on_do_view_change: view={} quorum received", .{
                 self.log_prefix(),
                 self.view,
             });
@@ -2688,7 +2688,7 @@ pub fn ReplicaType(
                     }
                 } else unreachable;
 
-                log.mark.debug("{}: on_do_view_change: lagging primary; forfeiting " ++
+                log.mark.warn("{}: on_do_view_change: lagging primary; forfeiting " ++
                     "(view={}..{} checkpoint={}..{})", .{
                     self.log_prefix(),
                     self.view,
@@ -3667,7 +3667,7 @@ pub fn ReplicaType(
             self.primary_abdicate_timeout.reset();
             if (self.solo()) return;
 
-            log.debug("{}: on_primary_abdicate_timeout: abdicating (view={})", .{
+            log.warn("{}: on_primary_abdicate_timeout: abdicating (view={})", .{
                 self.log_prefix(),
                 self.view,
             });
@@ -3853,7 +3853,7 @@ pub fn ReplicaType(
                 };
                 assert(!self.grid.free_set.is_free(fault.block_address));
 
-                log.debug("{}: on_grid_scrub_timeout: fault found: " ++
+                log.warn("{}: on_grid_scrub_timeout: fault found: " ++
                     "block_address={} block_checksum={x:0>32} block_type={s}", .{
                     self.log_prefix(),
                     fault.block_address,
@@ -9976,7 +9976,7 @@ pub fn ReplicaType(
             assert(self.view_headers.command == .start_view);
             defer assert(self.log_view >= self.superblock.working.vsr_state.checkpoint.header.view);
 
-            log.debug(
+            log.info(
                 "{}: transition_to_normal_from_recovering_head_status: view={}..{} backup",
                 .{
                     self.log_prefix(),

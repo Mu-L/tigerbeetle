@@ -338,7 +338,7 @@ pub fn JournalType(comptime Replica: type, comptime Storage: type) type {
             ))[0..constants.journal_iops_write_max];
             errdefer allocator.free(write_headers_sectors);
 
-            log.debug("{}: slot_count={} size={} headers_size={} prepares_size={}", .{
+            log.info("{}: slot_count={} size={} headers_size={} prepares_size={}", .{
                 replica,
                 slot_count,
                 std.fmt.fmtIntSizeBin(write_ahead_log_zone_size),
