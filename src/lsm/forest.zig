@@ -1004,15 +1004,16 @@ fn CompactionScheduleType(comptime Forest: type, comptime Grid: type) type {
                             // The +1 is for imperfections in pacing our immutable table, which
                             // might cause us to overshoot by a single block (limited to 1 due
                             // to how the immutable table values are consumed.)
-                            beat_value_blocks_max += stdx.div_ceil(
+                            const beat_value_blocks = stdx.div_ceil(
                                 compaction.quotas.beat,
                                 Table.layout.block_value_count_max,
                             ) + 1;
-
-                            beat_index_blocks_max += stdx.div_ceil(
-                                beat_value_blocks_max,
+                            const beat_index_blocks = stdx.div_ceil(
+                                beat_value_blocks,
                                 Table.value_block_count_max,
                             );
+                            beat_value_blocks_max += beat_value_blocks;
+                            beat_index_blocks_max += beat_index_blocks;
 
                             beat_input_size -|= (compaction.quotas.beat * @sizeOf(Value));
                         }
