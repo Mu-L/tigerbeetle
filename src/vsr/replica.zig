@@ -1518,6 +1518,7 @@ pub fn ReplicaType(
             assert(self.journal.header_with_op(self.op) != null);
             assert(self.view == self.routing.view);
             assert((self.sync_tables == null) == (self.sync_tables_op_range == null));
+            assert(self.commit_min <= self.op);
         }
 
         /// Time is measured in logical ticks that are incremented on every call to tick().
@@ -5866,7 +5867,7 @@ pub fn ReplicaType(
 
             // Determine the consecutive extent of the log that we can help recover.
             // This may precede op_repair_min if we haven't had a view-change recently.
-            const range_min = (@max(op_head_no_gaps, self.op) + 1) -| constants.journal_slot_count;
+            const range_min = (self.op + 1) -| constants.journal_slot_count;
 
             const range = self.journal.find_latest_headers_break_between(
                 range_min,
