@@ -63,7 +63,7 @@ pub const std_options: std.Options = .{
 pub fn main() !void {
     if (builtin.os.tag == .windows) try vsr.multiversion.wait_for_parent_to_exit();
 
-    var arena_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var arena_instance = std.heap.ArenaAllocator.init(stdx.huge_page_allocator);
     defer arena_instance.deinit();
 
     // Arena is an implementation detail, all memory must be freed.

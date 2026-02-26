@@ -16,6 +16,8 @@ pub const Snap = @import("testing/snaptest.zig").Snap;
 pub const ZipfianGenerator = @import("zipfian.zig").ZipfianGenerator;
 pub const ZipfianShuffled = @import("zipfian.zig").ZipfianShuffled;
 
+pub const huge_page_allocator = @import("huge_page_allocator.zig").huge_page_allocator;
+
 pub const aegis = @import("vendored/aegis.zig");
 pub const dbg = @import("debug.zig").dbg;
 pub const flags = @import("flags.zig").parse;
@@ -1144,6 +1146,7 @@ pub fn term_from_status(status: u32) std.process.Child.Term {
 }
 
 comptime {
+    _ = @import("huge_page_allocator.zig");
     _ = @import("vendored/aegis.zig");
     _ = @import("bit_set.zig");
     _ = @import("bounded_array.zig");
