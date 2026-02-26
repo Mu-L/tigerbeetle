@@ -1,6 +1,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const stdx = @import("stdx.zig");
 const Allocator = std.mem.Allocator;
+
+const log = std.log.scoped(.allocator);
 
 const page_allocator_vtable = std.heap.page_allocator.vtable;
 
@@ -28,11 +31,49 @@ const vtable: Allocator.VTable = .{
 fn alloc(context: *anyopaque, n: usize, alignment: std.mem.Alignment, ra: usize) ?[*]u8 {
     const ptr = page_allocator_vtable.alloc(context, n, alignment, ra) orelse return null;
     // This is just a hint, so if it fails we can safely ignore it.
-    std.posix.madvise(@alignCast(ptr), n, std.posix.MADV.HUGEPAGE) catch {};
+    std.posix.madvise(@alignCast(ptr), n, std.posix.MADV.HUGEPAGE) catch {
+        log.warn("Transparent Huge Pages  (TPH) are disabled.", .{});
+    };
     return ptr;
 }
 
 const testing = std.testing;
+
+/// Checks /proc/self/smaps for the "hg" VmFlag on the mapping containing `ptr`.
+fn check_huge_page(ptr: [*]const u8) !bool {
+    const addr = @intFromPtr(ptr);
+
+    var file = try std.fs.openFileAbsolute("/proc/self/smaps", .{});
+    defer file.close();
+
+    const content = try file.readToEndAlloc(testing.allocator, 10 * 1024 * 1024);
+    defer testing.allocator.free(content);
+
+    var lines = std.mem.splitScalar(u8, content, '\n');
+
+    // Find the mapping header that contains our address.
+    while (lines.next()) |line| {
+        if (parse_mapping_range(line)) |range| {
+            if (addr >= range.min and addr < range.max) {
+                // Scan subsequent lines for VmFlags within this mapping.
+                while (lines.next()) |detail| {
+                    if (stdx.cut_prefix(detail, "VmFlags:")) |rest| {
+                        return stdx.cut(rest, "hg") != null;
+                    }
+                }
+            }
+        }
+    }
+    return false;
+}
+
+fn parse_mapping_range(line: []const u8) ?struct { min: u64, max: u64 } {
+    const addr_range, _ = stdx.cut(line, " ") orelse return null;
+    const addr_min, const addr_max = stdx.cut(addr_range, "-") orelse return null;
+    const min = std.fmt.parseUnsigned(u64, addr_min, 16) catch return null;
+    const max = std.fmt.parseUnsigned(u64, addr_max, 16) catch return null;
+    return .{ .min = min, .max = max };
+}
 
 test "huge_page_allocator: basic alloc and free" {
     const slice = try huge_page_allocator.alloc(u8, 4096);
@@ -50,6 +91,13 @@ test "huge_page_allocator: large THP-eligible allocation" {
 
     @memset(slice, 0xcd);
     try testing.expectEqual(@as(u8, 0xcd), slice[size - 1]);
+
+    if (builtin.target.os.tag == .linux) {
+        // Verify that MADV_HUGEPAGE was applied by checking VmFlags in /proc/self/smaps.
+        // The "hg" flag means the process requested hugepages via madvise — this is
+        // deterministic regardless of whether the kernel actually promoted the pages.
+        try testing.expect(try check_huge_page(slice.ptr));
+    }
 }
 
 test "huge_page_allocator: as ArenaAllocator backing" {
