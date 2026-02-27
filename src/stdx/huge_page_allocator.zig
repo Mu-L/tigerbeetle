@@ -17,7 +17,7 @@ const page_allocator_vtable = std.heap.page_allocator.vtable;
 ///
 /// On non-Linux targets this is identical to `std.heap.page_allocator`.
 pub const huge_page_allocator: Allocator = .{
-    .ptr = undefined,
+    .ptr = std.heap.page_allocator.ptr,
     .vtable = if (builtin.target.os.tag == .linux) &vtable else page_allocator_vtable,
 };
 
