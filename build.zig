@@ -180,7 +180,7 @@ pub fn build(b: *std.Build) !void {
         .config_release = "65535.0.0",
         .config_release_client_min = "0.16.4",
     });
-    const tigerbeetle_test_previous = download_release(b, "latest", target, mode);
+    const tigerbeetle_test_previous = fetch_release(b, "latest", target, mode);
     const tigerbeetle_test = build_tigerbeetle_executable_multiversion(b, .{
         .stdx_module = stdx_module,
         .vsr_module = vsr_module_test,
@@ -638,7 +638,7 @@ fn build_tigerbeetle(
     const multiversion_file: ?std.Build.LazyPath = if (options.multiversion_file) |path|
         .{ .cwd_relative = path }
     else if (options.multiversion) |version_past|
-        download_release(b, version_past, options.target, options.mode)
+        fetch_release(b, version_past, options.target, options.mode)
     else
         null;
 
@@ -737,10 +737,7 @@ fn build_tigerbeetle_executable_multiversion(b: *std.Build, options: struct {
     if (options.llvm_objcopy) |path| {
         build_multiversion.addArg(b.fmt("--llvm-objcopy={s}", .{path}));
     } else {
-        build_multiversion.addPrefixedFileArg(
-            "--llvm-objcopy=",
-            build_tigerbeetle_executable_get_objcopy(b),
-        );
+        build_multiversion.addPrefixedFileArg("--llvm-objcopy=", fetch_objcopy(b));
     }
     if (options.target.result.os.tag == .macos) {
         build_multiversion.addArg("--target=macos");
@@ -785,53 +782,6 @@ fn build_tigerbeetle_executable_multiversion(b: *std.Build, options: struct {
     else
         "tigerbeetle";
     return build_multiversion.addPrefixedOutputFileArg("--output=", basename);
-}
-
-// Downloads a pre-build llvm-objcopy from <https://github.com/tigerbeetle/dependencies>.
-fn build_tigerbeetle_executable_get_objcopy(b: *std.Build) std.Build.LazyPath {
-    switch (b.graph.host.result.os.tag) {
-        .linux => {
-            switch (b.graph.host.result.cpu.arch) {
-                .x86_64 => {
-                    return fetch(b, .{
-                        .url = "https://github.com/tigerbeetle/dependencies/releases/download/" ++
-                            "18.1.8/llvm-objcopy-x86_64-linux.zip",
-                        .file_name = "llvm-objcopy",
-                        .hash = "N-V-__8AAFCWcgAxBPUOMe_uJrFGfQ2Ri_SsbNp77pPYZdAe",
-                    });
-                },
-                .aarch64 => {
-                    return fetch(b, .{
-                        .url = "https://github.com/tigerbeetle/dependencies/releases/download/" ++
-                            "18.1.8/llvm-objcopy-aarch64-linux.zip",
-                        .file_name = "llvm-objcopy",
-                        .hash = "N-V-__8AAIgJcQAG--KvT2zb1yNrlRtNEo3pW3aIgoppmbT-",
-                    });
-                },
-                else => @panic("unsupported arch"),
-            }
-        },
-        .windows => {
-            assert(b.graph.host.result.cpu.arch == .x86_64);
-            return fetch(b, .{
-                .url = "https://github.com/tigerbeetle/dependencies/releases/download/" ++
-                    "18.1.8/llvm-objcopy-x86_64-windows.zip",
-                .file_name = "llvm-objcopy.exe",
-                .hash = "N-V-__8AAADuPABpdHRgl3oetSEQ6yq8i5kq9XJC73JDFtMH",
-            });
-        },
-        .macos => {
-            // TODO: this assert triggers, but the macOS tests on x86_64 work...?
-            // assert(b.graph.host.result.cpu.arch == .aarch64);
-            return fetch(b, .{
-                .url = "https://github.com/tigerbeetle/dependencies/releases/download/" ++
-                    "18.1.8/llvm-objcopy-aarch64-macos.zip",
-                .file_name = "llvm-objcopy",
-                .hash = "N-V-__8AAFAsVgArdRpU50gjJhqaAUSXsTemKo2A9rCaewUV",
-            });
-        },
-        else => @panic("unsupported host"),
-    }
 }
 
 fn build_aof(
@@ -2221,7 +2171,34 @@ const Generated = struct {
     }
 };
 
-fn download_release(
+// Use 'zig fetch' to download and unpack the specified URL, optionally verifying the checksum.
+fn fetch(b: *std.Build, options: struct {
+    url: []const u8,
+    file_name: []const u8,
+    hash: ?[]const u8,
+}) std.Build.LazyPath {
+    const fetch_step = b.addRunArtifact(b.addExecutable(.{
+        .name = "fetch",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("./src/build/fetch.zig"),
+            .target = b.graph.host,
+        }),
+    }));
+    fetch_step.setName(b.fmt("fetch {s}", .{options.url}));
+
+    fetch_step.addArgs(&.{
+        b.graph.zig_exe,
+        b.graph.global_cache_root.path orelse ".",
+        options.url,
+        options.file_name,
+    });
+    const result = fetch_step.addOutputFileArg(options.file_name);
+    if (options.hash) |hash| fetch_step.addArg(hash);
+
+    return result;
+}
+
+fn fetch_release(
     b: *std.Build,
     version_or_latest: []const u8,
     target: std.Build.ResolvedTarget,
@@ -2266,31 +2243,51 @@ fn download_release(
     });
 }
 
-// Use 'zig fetch' to download and unpack the specified URL, optionally verifying the checksum.
-fn fetch(b: *std.Build, options: struct {
-    url: []const u8,
-    file_name: []const u8,
-    hash: ?[]const u8,
-}) std.Build.LazyPath {
-    const fetch_step = b.addRunArtifact(b.addExecutable(.{
-        .name = "fetch",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("./src/build/fetch.zig"),
-            .target = b.graph.host,
-        }),
-    }));
-    fetch_step.setName(b.fmt("fetch {s}", .{options.url}));
-
-    fetch_step.addArgs(&.{
-        b.graph.zig_exe,
-        b.graph.global_cache_root.path orelse ".",
-        options.url,
-        options.file_name,
-    });
-    const result = fetch_step.addOutputFileArg(options.file_name);
-    if (options.hash) |hash| fetch_step.addArg(hash);
-
-    return result;
+// Downloads a pre-build llvm-objcopy from <https://github.com/tigerbeetle/dependencies>.
+fn fetch_objcopy(b: *std.Build) std.Build.LazyPath {
+    switch (b.graph.host.result.os.tag) {
+        .linux => {
+            switch (b.graph.host.result.cpu.arch) {
+                .x86_64 => {
+                    return fetch(b, .{
+                        .url = "https://github.com/tigerbeetle/dependencies/releases/download/" ++
+                            "18.1.8/llvm-objcopy-x86_64-linux.zip",
+                        .file_name = "llvm-objcopy",
+                        .hash = "N-V-__8AAFCWcgAxBPUOMe_uJrFGfQ2Ri_SsbNp77pPYZdAe",
+                    });
+                },
+                .aarch64 => {
+                    return fetch(b, .{
+                        .url = "https://github.com/tigerbeetle/dependencies/releases/download/" ++
+                            "18.1.8/llvm-objcopy-aarch64-linux.zip",
+                        .file_name = "llvm-objcopy",
+                        .hash = "N-V-__8AAIgJcQAG--KvT2zb1yNrlRtNEo3pW3aIgoppmbT-",
+                    });
+                },
+                else => @panic("unsupported arch"),
+            }
+        },
+        .windows => {
+            assert(b.graph.host.result.cpu.arch == .x86_64);
+            return fetch(b, .{
+                .url = "https://github.com/tigerbeetle/dependencies/releases/download/" ++
+                    "18.1.8/llvm-objcopy-x86_64-windows.zip",
+                .file_name = "llvm-objcopy.exe",
+                .hash = "N-V-__8AAADuPABpdHRgl3oetSEQ6yq8i5kq9XJC73JDFtMH",
+            });
+        },
+        .macos => {
+            // TODO: this assert triggers, but the macOS tests on x86_64 work...?
+            // assert(b.graph.host.result.cpu.arch == .aarch64);
+            return fetch(b, .{
+                .url = "https://github.com/tigerbeetle/dependencies/releases/download/" ++
+                    "18.1.8/llvm-objcopy-aarch64-macos.zip",
+                .file_name = "llvm-objcopy",
+                .hash = "N-V-__8AAFAsVgArdRpU50gjJhqaAUSXsTemKo2A9rCaewUV",
+            });
+        },
+        else => @panic("unsupported host"),
+    }
 }
 
 const MiB = 1024 * 1024;
