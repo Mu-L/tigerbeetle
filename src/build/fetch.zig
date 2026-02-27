@@ -48,10 +48,11 @@ pub fn main() !void {
         try std.fs.cwd().makePath(tmp_dir);
 
         const curl_output = path_join(arena, &.{ tmp_dir, url_file_name });
-        _ = try exec(arena, &(.{"curl"} ++ .{
-            "--location",       url,
+        _ = try exec(arena, &(.{
+            "curl",             "--retry-all-errors",
             "--retry",          "5",
             "--retry-max-time", "120",
+            "--location",       url,
             "--output",         curl_output,
         }));
         break :hash try exec(arena, &.{ zig, "fetch", curl_output });
