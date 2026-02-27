@@ -921,13 +921,12 @@ pub const MultiversionOS = struct {
     }
 
     pub fn timeout_start(self: *MultiversionOS, replica_index: u8) void {
+        // Checking for new binaries on disk after the replica has been opened is only
+        // supported on Linux.
+        comptime assert(builtin.target.os.tag == .linux);
         assert(!self.timeout.ticking);
-        if (builtin.target.os.tag != .linux) {
-            // Checking for new binaries on disk after the replica has been opened is only
-            // supported on Linux.
-            return;
-        }
         assert(self.timeout.id == 0);
+
         self.timeout.id = replica_index;
         self.timeout.start();
         log.debug("enabled automatic on-disk version detection.", .{});

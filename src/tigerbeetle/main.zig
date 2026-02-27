@@ -389,7 +389,11 @@ fn command_start(
     };
 
     if (multiversion_os != null) {
-        if (args.development) {
+        if (builtin.target.os.tag != .linux) {
+            // Checking for new binaries on disk after the replica has been opened is only
+            // supported on Linux.
+            log.info("multiversioning: upgrade polling disabled; only available on Linux", .{});
+        } else if (args.development) {
             log.info("multiversioning: upgrade polling disabled due to --development.", .{});
         } else {
             multiversion_os.?.timeout_start(replica.replica);
