@@ -32,7 +32,7 @@ fn alloc(context: *anyopaque, n: usize, alignment: std.mem.Alignment, ra: usize)
     const ptr = page_allocator_vtable.alloc(context, n, alignment, ra) orelse return null;
     // This is just a hint, so if it fails we can safely ignore it.
     std.posix.madvise(@alignCast(ptr), n, std.posix.MADV.HUGEPAGE) catch {
-        log.warn("Transparent Huge Pages (TPH) are disabled.", .{});
+        log.warn("Transparent Huge Pages (THP) are disabled.", .{});
     };
     return ptr;
 }
