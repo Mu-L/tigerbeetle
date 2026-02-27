@@ -393,13 +393,13 @@ fn command_start(
             log.info("multiversioning: upgrade polling disabled due to --development.", .{});
         } else {
             multiversion_os.?.timeout_start(replica.replica);
-        }
 
-        if (args.experimental) {
-            log.warn("multiversioning: upgrade polling and --experimental enabled - " ++
-                "make sure to check CLI argument compatibility before upgrading.", .{});
-            log.warn("If the cluster upgrades automatically, and incompatible experimental " ++
-                "CLI arguments are set, it will crash.", .{});
+            if (args.experimental) {
+                log.warn("multiversioning: upgrade polling and --experimental enabled - " ++
+                    "make sure to check CLI argument compatibility before upgrading.", .{});
+                log.warn("If the cluster upgrades automatically, and incompatible experimental " ++
+                    "CLI arguments are set, it will crash.", .{});
+            }
         }
     }
 
