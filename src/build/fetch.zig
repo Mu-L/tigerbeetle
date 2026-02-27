@@ -52,6 +52,7 @@ pub fn main() !void {
             "curl",             "--retry-all-errors",
             "--retry",          "5",
             "--retry-max-time", "120",
+            "--retry-delay",    "30",
             "--location",       url,
             "--output",         curl_output,
         }));
