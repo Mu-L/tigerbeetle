@@ -38,9 +38,11 @@ fn alloc(context: *anyopaque, n: usize, alignment: std.mem.Alignment, ra: usize)
 }
 
 const testing = std.testing;
+const assert = std.debug.assert;
 
 /// Checks /proc/self/smaps for the "hg" VmFlag on the mapping containing `ptr`.
-fn check_huge_page(ptr: [*]const u8) !bool {
+fn verify_address_is_huge_page(ptr: [*]const u8) !bool {
+    assert(builtin.target.os.tag == .linux);
     const addr = @intFromPtr(ptr);
 
     var file = try std.fs.openFileAbsolute("/proc/self/smaps", .{});
@@ -69,10 +71,10 @@ fn check_huge_page(ptr: [*]const u8) !bool {
 
 fn parse_mapping_range(line: []const u8) ?struct { min: u64, max: u64 } {
     const addr_range, _ = stdx.cut(line, " ") orelse return null;
-    const addr_min, const addr_max = stdx.cut(addr_range, "-") orelse return null;
-    const min = std.fmt.parseUnsigned(u64, addr_min, 16) catch return null;
-    const max = std.fmt.parseUnsigned(u64, addr_max, 16) catch return null;
-    return .{ .min = min, .max = max };
+    const addr_hex_min, const addr_hex_max = stdx.cut(addr_range, "-") orelse return null;
+    const addr_min = std.fmt.parseUnsigned(u64, addr_hex_min, 16) catch return null;
+    const addr_max = std.fmt.parseUnsigned(u64, addr_hex_max, 16) catch return null;
+    return .{ .min = addr_min, .max = addr_max };
 }
 
 test "huge_page_allocator: basic alloc and free" {
@@ -96,7 +98,7 @@ test "huge_page_allocator: large THP-eligible allocation" {
         // Verify that MADV_HUGEPAGE was applied by checking VmFlags in /proc/self/smaps.
         // The "hg" flag means the process requested hugepages via madvise — this is
         // deterministic regardless of whether the kernel actually promoted the pages.
-        try testing.expect(try check_huge_page(slice.ptr));
+        try testing.expect(try verify_address_is_huge_page(slice.ptr));
     }
 }
 
