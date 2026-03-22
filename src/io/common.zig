@@ -167,10 +167,12 @@ pub const Stats = struct {
     const Timings = struct {
         time_callbacks: stdx.Duration = .ms(0),
         time_run_for_ns: stdx.Duration = .ms(0),
+        time_kernel: stdx.Duration = .ms(0),
 
         pub fn add(total: *Timings, increment: Timings) void {
             total.time_callbacks.ns +|= increment.time_callbacks.ns;
             total.time_run_for_ns.ns +|= increment.time_run_for_ns.ns;
+            total.time_kernel.ns +|= increment.time_kernel.ns;
         }
     };
 
@@ -178,6 +180,7 @@ pub const Stats = struct {
         if (stats.tracer) |tracer| {
             tracer.timing(.loop_run_for_ns, stats.window.time_run_for_ns);
             tracer.timing(.loop_callbacks, stats.window.time_callbacks);
+            tracer.timing(.loop_kernel, stats.window.time_kernel);
         }
         stats.total.add(stats.window);
         stats.window = .{};
