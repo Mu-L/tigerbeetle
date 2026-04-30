@@ -396,13 +396,13 @@ fn get_measurement(
 }
 
 fn upload_run(shell: *Shell, batch: *const MetricBatch) !void {
-    const token = try shell.env_get("DEVHUBDB_PAT");
+    const token = shell.env_get_option("DEVHUBDB_PAT");
     try shell.exec(
         \\git clone --single-branch --depth 1
         \\  https://oauth2:{token}@github.com/tigerbeetle/devhubdb.git
         \\  devhubdb
     , .{
-        .token = token,
+        .token = token orelse "",
     });
 
     try shell.pushd("./devhubdb");
@@ -426,11 +426,15 @@ fn upload_run(shell: *Shell, batch: *const MetricBatch) !void {
         try shell.exec("git add ./devhub/data.json", .{});
         try shell.git_env_setup(.{ .use_hostname = false });
         try shell.exec("git commit -m 📈", .{});
-        if (shell.exec("git push", .{})) {
-            log.info("metrics uploaded", .{});
-            break;
-        } else |_| {
-            log.info("conflict, retrying", .{});
+        if (token) |_| {
+            if (shell.exec("git push", .{})) {
+                log.info("metrics uploaded", .{});
+                break;
+            } else |_| {
+                log.info("conflict, retrying", .{});
+            }
+        } else {
+            return error.NoToken;
         }
     } else {
         log.err("can't push new data to devhub", .{});
