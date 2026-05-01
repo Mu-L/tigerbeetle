@@ -3,6 +3,65 @@
 Subscribe to the [tracking issue #2231](https://github.com/tigerbeetle/tigerbeetle/issues/2231)
 to receive notifications about breaking changes!
 
+## TigerBeetle 0.17.3
+
+Released: 2026-05-01
+
+### Safety And Performance
+
+- [#3669](https://github.com/tigerbeetle/tigerbeetle/pull/3669),
+  [#3668](https://github.com/tigerbeetle/tigerbeetle/pull/3668)
+
+  Switch replication strategy from adaptive replication routing to star.
+
+  Star replication involves the primary broadcasting prepares to all
+  backups and handles network jitter better, leading to lower p100
+  latencies in cross-region deployments.
+
+- [#3665](https://github.com/tigerbeetle/tigerbeetle/pull/3665),
+  [#3671](https://github.com/tigerbeetle/tigerbeetle/pull/3671),
+  [#3676](https://github.com/tigerbeetle/tigerbeetle/pull/3676)
+
+  Guard against supply-chain attacks via GitHub actions by pinning
+  them to the latest commit SHAs.
+
+- [#3659](https://github.com/tigerbeetle/tigerbeetle/pull/3659)
+
+  Recompute the checksum body only for operations that modify the body.
+
+- [#3679](https://github.com/tigerbeetle/tigerbeetle/pull/3679)
+
+  Simplify the control flow of Zig-Zag merge using
+  [galloping search](https://en.wikipedia.org/wiki/Exponential_search),
+  to drain the keys and avoid rebuilding the tree multiple times.
+
+### Internals
+
+- [#3678](https://github.com/tigerbeetle/tigerbeetle/pull/3678),
+  [#3675](https://github.com/tigerbeetle/tigerbeetle/pull/3675)
+
+  Workaround various flakes caused by GitHub actions.
+
+  Specifically, actions cache flakes on Windows, and `gh run list`
+  sometimes returns no response.
+
+- [#3672](https://github.com/tigerbeetle/tigerbeetle/pull/3672)
+
+  Fix a flaky client test due to an overly conservative timeout
+  for expiring transfers.
+
+- [#3674](https://github.com/tigerbeetle/tigerbeetle/pull/3674)
+
+  Make release validation work cross-platform.
+
+- [#3683](https://github.com/tigerbeetle/tigerbeetle/pull/3683)
+
+  Fix the Go client documentation for posting/voiding pending transfers.
+
+### TigerTracks 🎧
+
+- [Airbag](https://open.spotify.com/track/7c378mlmubSu7NGkLFa4sN)
+
 ## TigerBeetle 0.17.2
 
 Released: 2026-04-24
