@@ -53,16 +53,28 @@ function main_release_rotation() {
 }
 
 async function main_seeds() {
+  const duration_week = 1000 * 60 * 60 * 24 * 7;
+  const earlier = new Date(Date.now() - duration_week);
+
   const data_url =
     "https://raw.githubusercontent.com/tigerbeetle/devhubdb/main/fuzzing/data.json";
   const issues_url =
     "https://api.github.com/repos/tigerbeetle/tigerbeetle/issues?per_page=200";
   const logs_base =
     "https://raw.githubusercontent.com/tigerbeetle/devhubdb/main/";
+  const flakes_url =
+    `https://api.github.com/repos/tigerbeetle/tigerbeetle/actions/runs?${new URLSearchParams({
+      branch: 'main',
+      per_page: 100,
+      created: `>=${earlier.toISOString().split('T')[0]}`,
+      status: 'failure',
+      exclude_pull_requests: 'true',
+    })}`;
 
-  const [records, issues] = await Promise.all([
+  const [records, issues, flakes] = await Promise.all([
     fetch_json(data_url),
     fetch_json(issues_url),
+    fetch_json(flakes_url),
   ]);
 
   const pulls = issues.filter((issue) => issue.pull_request);
@@ -80,6 +92,11 @@ async function main_seeds() {
     document.querySelector("#untriaged-issues-count").classList.add(
       "untriaged",
     );
+  }
+
+  document.querySelector("#flakes-count").innerText = flakes.total_count;
+  if (flakes.total_count) {
+    document.querySelector("#flakes-count").classList.add("untriaged");
   }
 
   // Filtering:
