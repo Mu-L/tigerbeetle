@@ -241,7 +241,6 @@ pub const IO = struct {
 
         const sqe = self.ring.get_sqe() catch |err| switch (err) {
             error.SubmissionQueueFull => blk: {
-                // FIXME: Currently warns on format.
                 std.log.warn(
                     "enqueue: submission queue full. flushing. consider resizing IO.init()",
                     .{},
