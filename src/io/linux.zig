@@ -15,7 +15,6 @@ const QueueType = @import("../queue.zig").QueueType;
 const buffer_limit = @import("../io.zig").buffer_limit;
 const DirectIO = @import("../io.zig").DirectIO;
 const DoublyLinkedListType = @import("../list.zig").DoublyLinkedListType;
-const parse_dirty_semver = stdx.parse_dirty_semver;
 const maybe = stdx.maybe;
 
 pub const IO = struct {
@@ -62,14 +61,6 @@ pub const IO = struct {
     run_for_ns_active: bool = false,
 
     pub fn init(entries: u12, flags: u32) !IO {
-        // Detect the linux version to ensure that we support all io_uring ops used.
-        const uts = posix.uname();
-        const version = try parse_dirty_semver(&uts.release);
-        // FIXME: Bump this as required.
-        if (version.order(std.SemanticVersion{ .major = 5, .minor = 5, .patch = 0 }) == .lt) {
-            @panic("Linux kernel 5.5 or greater is required for io_uring OP_ACCEPT");
-        }
-
         errdefer |err| switch (err) {
             error.SystemOutdated => {
                 log.err("io_uring is not available", .{});
@@ -83,7 +74,15 @@ pub const IO = struct {
             else => {},
         };
 
-        return IO{ .ring = try IO_Uring.init(entries, flags) };
+        var ring = try IO_Uring.init(entries, flags);
+        errdefer ring.deinit();
+
+        // IORING_ENTER_EXT_ARG is the newest feature we currently use: it was added in 5.11.
+        if ((ring.features & linux.IORING_FEAT_EXT_ARG) == 0) {
+            @panic("Linux kernel 5.11 or greater is required for IORING_ENTER_EXT_ARG");
+        }
+
+        return IO{ .ring = ring };
     }
 
     pub fn deinit(self: *IO) void {
