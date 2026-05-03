@@ -416,6 +416,7 @@ const IO = struct {
     pub const RecvError = RealIO.RecvError;
     pub const SendError = RealIO.SendError;
     pub const TimeoutError = RealIO.TimeoutError;
+    pub const NextTickSource = RealIO.NextTickSource;
     pub const socket_t = i32;
     pub const fd_t = i32;
     const EventQueue = std.PriorityQueue(Event, void, Event.less_than);
@@ -471,6 +472,7 @@ const IO = struct {
         recv: struct { socket: socket_t, buffer: []u8 },
         send: struct { socket: socket_t, buffer: []const u8 },
         timeout,
+        next_tick,
     };
 
     pub const Completion = struct {
@@ -482,6 +484,7 @@ const IO = struct {
             recv: *const fn (*MessageBus, *Completion, RecvError!usize) void,
             send: *const fn (*MessageBus, *Completion, SendError!usize) void,
             timeout: *const fn (*MessageBus, *Completion, TimeoutError!void) void,
+            next_tick: *const fn (*MessageBus, *Completion, NextTickResult) void,
         },
         operation: Operation,
     };
@@ -726,6 +729,9 @@ const IO = struct {
                 const result: TimeoutError!void = {};
                 completion.callback.timeout(completion.context, completion, result);
             },
+            .next_tick => {
+                completion.callback.next_tick(completion.context, completion, {});
+            },
         }
         return .done;
     }
@@ -802,7 +808,7 @@ const IO = struct {
             switch (event.completion.operation) {
                 inline .accept, .connect, .recv, .send => |data| assert(data.socket != fd),
                 .close => |data| assert(data.fd != fd),
-                .timeout => {},
+                .timeout, .next_tick => {},
             }
         }
 
@@ -918,6 +924,28 @@ const IO = struct {
         io.events.add(.{
             .completion = completion,
             .ready_at = io.tick_instant().add(.{ .ns = (nanoseconds -| jitter_mean) + jitter }),
+        }) catch @panic("OOM");
+    }
+
+    pub const NextTickResult = void;
+
+    pub fn next_tick(
+        io: *IO,
+        comptime Context: type,
+        context: Context,
+        comptime callback: fn (Context, *Completion, NextTickResult) void,
+        completion: *Completion,
+        source: NextTickSource,
+    ) void {
+        _ = source;
+        completion.* = .{
+            .context = context,
+            .callback = .{ .next_tick = callback },
+            .operation = .next_tick,
+        };
+        io.events.add(.{
+            .completion = completion,
+            .ready_at = io.tick_instant(),
         }) catch @panic("OOM");
     }
 
