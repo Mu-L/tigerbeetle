@@ -21,6 +21,7 @@ pub const IO = struct {
     pub const TCPOptions = common.TCPOptions;
     pub const ListenOptions = common.ListenOptions;
     pub const Stats = common.Stats;
+    pub const NextTickSource = common.NextTickSource;
     const CompletionList = DoublyLinkedListType(Completion, .awaiting_back, .awaiting_next);
 
     ring: IO_Uring,
@@ -462,8 +463,6 @@ pub const IO = struct {
 
         self.enqueue(options.completion);
     }
-
-    pub const NextTickSource = enum { lsm, vsr };
 
     /// Schedule a deferred callback that doesn't involve kernel IO.
     pub fn next_tick(

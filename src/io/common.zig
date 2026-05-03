@@ -27,6 +27,8 @@ pub const ListenOptions = struct {
     backlog: u31,
 };
 
+pub const NextTickSource = enum { lsm, vsr };
+
 pub fn listen(
     fd: posix.socket_t,
     address: std.net.Address,

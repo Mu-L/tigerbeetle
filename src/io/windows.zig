@@ -16,6 +16,7 @@ pub const IO = struct {
     pub const TCPOptions = common.TCPOptions;
     pub const ListenOptions = common.ListenOptions;
     pub const Stats = common.Stats;
+    pub const NextTickSource = common.NextTickSource;
 
     iocp: os.windows.HANDLE,
     time_os: TimeOS = .{},
@@ -250,6 +251,9 @@ pub const IO = struct {
                 deadline: u64,
             },
             event: Overlapped,
+            next_tick: struct {
+                source: NextTickSource,
+            },
         };
     };
 
@@ -1029,23 +1033,8 @@ pub const IO = struct {
         completion: *Completion,
         nanoseconds: u63,
     ) void {
-        // Special case a zero timeout as a yield.
-        if (nanoseconds == 0) {
-            completion.* = .{
-                .link = .{},
-                .context = @ptrCast(context),
-                .operation = undefined,
-                .callback = struct {
-                    fn on_complete(ctx: Completion.Context) void {
-                        const _context: Context = @ptrCast(@alignCast(ctx.completion.context));
-                        callback(_context, ctx.completion, {});
-                    }
-                }.on_complete,
-            };
-
-            self.completed.push(completion);
-            return;
-        }
+        // Use `next_tick()` if you're looking for a yield.
+        assert(nanoseconds > 0);
 
         self.submit(
             context,
@@ -1061,6 +1050,49 @@ pub const IO = struct {
                 }
             },
         );
+    }
+
+    pub const NextTickResult = void;
+
+    /// Schedule a deferred callback that doesn't involve kernel IO.
+    pub fn next_tick(
+        self: *IO,
+        comptime Context: type,
+        context: Context,
+        comptime callback: fn (
+            context: Context,
+            completion: *Completion,
+            result: NextTickResult,
+        ) void,
+        completion: *Completion,
+        source: NextTickSource,
+    ) void {
+        completion.* = .{
+            .link = .{},
+            .context = @ptrCast(context),
+            .operation = .{ .next_tick = .{ .source = source } },
+            .callback = struct {
+                fn on_complete(ctx: Completion.Context) void {
+                    callback(@ptrCast(@alignCast(ctx.completion.context)), ctx.completion, {});
+                }
+            }.on_complete,
+        };
+        self.completed.push(completion);
+    }
+
+    /// Remove all next_tick entries with the given source from the completed queue.
+    pub fn reset_next_tick(self: *IO, source: NextTickSource) void {
+        var old = self.completed;
+        self.completed.reset();
+
+        while (old.pop()) |completion| {
+            if (completion.operation == .next_tick and
+                completion.operation.next_tick.source == source)
+            {
+                continue;
+            }
+            self.completed.push(completion);
+        }
     }
 
     pub const Event = u1;
