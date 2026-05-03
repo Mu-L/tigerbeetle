@@ -535,7 +535,7 @@ const Benchmark = struct {
             &b.client_timeouts[client_index],
             create_transfers_next,
             &b.client_timeouts[client_index].completion,
-            @intCast(b.transfer_batch_delay.ns),
+            @intCast(@max(b.transfer_batch_delay.ns, 1)),
         );
     }
 
