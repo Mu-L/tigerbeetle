@@ -5,6 +5,7 @@ const assert = std.debug.assert;
 
 const stdx = @import("stdx");
 const constants = @import("../constants.zig");
+const common = @import("../io/common.zig");
 const QueueType = @import("../queue.zig").QueueType;
 const buffer_limit = @import("../io.zig").buffer_limit;
 const Ratio = stdx.PRNG.Ratio;
@@ -12,6 +13,7 @@ const Ratio = stdx.PRNG.Ratio;
 /// A very simple mock IO implementation that only implements what is needed to test Storage.
 pub const IO = struct {
     pub const fd_t = u32;
+    pub const NextTickSource = common.NextTickSource;
 
     pub const File = struct {
         buffer: []u8,
@@ -86,6 +88,9 @@ pub const IO = struct {
         },
         fsync: struct {
             fd: fd_t,
+        },
+        next_tick: struct {
+            source: NextTickSource,
         },
     };
 
@@ -262,6 +267,49 @@ pub const IO = struct {
                 fn do_operation(_: *IO, _: anytype) FsyncError!void {}
             },
         );
+    }
+
+    pub const NextTickResult = void;
+
+    /// Schedule a deferred callback that doesn't involve kernel IO.
+    pub fn next_tick(
+        self: *IO,
+        comptime Context: type,
+        context: Context,
+        comptime callback: fn (
+            context: Context,
+            completion: *Completion,
+            result: NextTickResult,
+        ) void,
+        completion: *Completion,
+        source: NextTickSource,
+    ) void {
+        completion.* = .{
+            .link = .{},
+            .context = context,
+            .operation = .{ .next_tick = .{ .source = source } },
+            .callback = struct {
+                fn on_complete(_: *IO, _completion: *Completion) void {
+                    callback(@ptrCast(@alignCast(_completion.context)), _completion, {});
+                }
+            }.on_complete,
+        };
+        self.completed.push(completion);
+    }
+
+    /// Remove all next_tick entries with the given source from the completed queue.
+    pub fn reset_next_tick(self: *IO, source: NextTickSource) void {
+        var old = self.completed;
+        self.completed.reset();
+
+        while (old.pop()) |completion| {
+            if (completion.operation == .next_tick and
+                completion.operation.next_tick.source == source)
+            {
+                continue;
+            }
+            self.completed.push(completion);
+        }
     }
 
     pub fn aof_blocking_write_all(self: *IO, fd: fd_t, source: []const u8) posix.WriteError!void {
