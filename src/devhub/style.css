@@ -79,6 +79,10 @@ h3 {
     padding: 1px 6px;
     color: var(--gray-1);
     font-weight: bold;
+
+    &.untriaged {
+        background-color: var(--red-10);
+    }
 }
 
 nav {
@@ -133,10 +137,6 @@ section#top {
         p {
             line-height: 24px;
         }
-    }
-
-    #untriaged-issues-count.untriaged {
-        background-color: var(--red-10);
     }
 }
 
