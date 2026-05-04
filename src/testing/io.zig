@@ -299,10 +299,10 @@ pub const IO = struct {
 
     /// Remove all next_tick entries with the given source from the completed queue.
     pub fn reset_next_tick(self: *IO, source: NextTickSource) void {
-        var old = self.completed;
+        var completed = self.completed;
         self.completed.reset();
 
-        while (old.pop()) |completion| {
+        while (completed.pop()) |completion| {
             if (completion.operation == .next_tick and
                 completion.operation.next_tick.source == source)
             {
