@@ -176,7 +176,7 @@ const Pipe = struct {
                 pipe,
                 timeout_callback,
                 &pipe.send_completion,
-                timeout_duration_ns,
+                @max(timeout_duration_ns, 1),
             );
         } else {
             pipe.send();

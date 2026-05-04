@@ -482,7 +482,7 @@ pub fn MessageBusType(comptime IO: type) type {
                 connect_timeout_callback,
                 // We use `recv_completion` for the connection `timeout()` and `connect()` calls
                 &connection.recv_completion,
-                @as(u63, @intCast(ms * std.time.ns_per_ms)),
+                @as(u63, @intCast(@max(ms * std.time.ns_per_ms, 1))),
             );
         }
 

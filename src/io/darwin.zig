@@ -55,6 +55,7 @@ pub const IO = struct {
     /// The `nanoseconds` argument is a u63 to allow coercion to the i64 used
     /// in the __kernel_timespec struct.
     pub fn run_for_ns(self: *IO, nanoseconds: u63) !void {
+        assert(!self.run_for_ns_active);
         self.run_for_ns_active = true;
         defer self.run_for_ns_active = false;
         defer assert(self.run_for_ns_active);
