@@ -52,12 +52,15 @@ pub const IO = struct {
     }
 
     pub fn run(self: *IO) !void {
+        assert(!self.run_for_ns_active);
+
         return self.flush(.non_blocking);
     }
 
     pub fn run_for_ns(self: *IO, nanoseconds: u63) !void {
         self.run_for_ns_active = true;
         defer self.run_for_ns_active = false;
+        defer assert(self.run_for_ns_active);
 
         defer self.stats.trace();
 

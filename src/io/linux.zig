@@ -116,6 +116,7 @@ pub const IO = struct {
 
         self.run_for_ns_active = true;
         defer self.run_for_ns_active = false;
+        defer assert(self.run_for_ns_active);
 
         defer self.stats.trace();
 

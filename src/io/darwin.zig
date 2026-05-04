@@ -46,6 +46,8 @@ pub const IO = struct {
 
     /// Pass all queued submissions to the kernel and peek for completions.
     pub fn run(self: *IO) !void {
+        assert(!self.run_for_ns_active);
+
         return self.flush(false);
     }
 
@@ -55,6 +57,7 @@ pub const IO = struct {
     pub fn run_for_ns(self: *IO, nanoseconds: u63) !void {
         self.run_for_ns_active = true;
         defer self.run_for_ns_active = false;
+        defer assert(self.run_for_ns_active);
 
         defer self.stats.trace();
 
