@@ -23,6 +23,7 @@ pub const IO = struct {
     io_pending: usize = 0,
     timeouts: QueueType(Completion) = QueueType(Completion).init(.{ .name = "io_timeouts" }),
     completed: QueueType(Completion) = QueueType(Completion).init(.{ .name = "io_completed" }),
+    run_for_ns_active: bool = false,
 
     stats: common.Stats = .{},
 
@@ -55,6 +56,9 @@ pub const IO = struct {
     }
 
     pub fn run_for_ns(self: *IO, nanoseconds: u63) !void {
+        self.run_for_ns_active = true;
+        defer self.run_for_ns_active = false;
+
         defer self.stats.trace();
 
         var timer = try std.time.Timer.start();

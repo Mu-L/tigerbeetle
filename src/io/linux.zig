@@ -113,10 +113,11 @@ pub const IO = struct {
     /// in the kernel_timespec struct.
     pub fn run_for_ns(self: *IO, nanoseconds: u63) !void {
         assert(self.cancel_all_status != .done);
-        defer self.stats.trace();
 
         self.run_for_ns_active = true;
         defer self.run_for_ns_active = false;
+
+        defer self.stats.trace();
 
         var timer = try std.time.Timer.start();
         defer self.stats.window.time_run_for_ns.ns += timer.read();
