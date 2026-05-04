@@ -1463,18 +1463,30 @@ pub fn GrooveType(
                     groove.objects_cache.compact();
                 }
 
-                groove.grid.trace.gauge(
-                    .{ .lsm_object_cache_entries = .{
-                        .groove = @enumFromInt(groove_options.ids.timestamp),
-                    } },
-                    groove.objects_cache.cache_entries(),
+                const Trace = @TypeOf(groove.grid.trace.*);
+                const GrooveMetric = @FieldType(
+                    @FieldType(Trace.EventMetric, "lsm_object_cache_entries"),
+                    "groove",
                 );
-                groove.grid.trace.gauge(
-                    .{ .lsm_object_cache_entries_max = .{
-                        .groove = @enumFromInt(groove_options.ids.timestamp),
-                    } },
-                    groove.objects_cache.cache_entries_max(),
+                const maybe_groove_metric = comptime std.meta.stringToEnum(
+                    GrooveMetric,
+                    ObjectTree.tree_name(),
                 );
+
+                if (comptime maybe_groove_metric) |groove_metric| {
+                    groove.grid.trace.gauge(
+                        .{ .lsm_object_cache_entries = .{
+                            .groove = groove_metric,
+                        } },
+                        groove.objects_cache.cache_entries(),
+                    );
+                    groove.grid.trace.gauge(
+                        .{ .lsm_object_cache_entries_max = .{
+                            .groove = groove_metric,
+                        } },
+                        groove.objects_cache.cache_entries_max(),
+                    );
+                }
             }
         }
 
