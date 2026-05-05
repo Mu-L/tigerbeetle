@@ -29,7 +29,7 @@ function main_release_rotation() {
   }
 
   function get_release_manager() {
-    const shift = 3; // Adjust when changing the set of candidates to avoid shifts.
+    const shift = 2; // Adjust when changing the set of candidates to avoid shifts.
     const week = get_week(new Date()) + shift;
     const candidates = [
       "batiati",
@@ -43,7 +43,9 @@ function main_release_rotation() {
       "sentientwaffle",
       "toziegler",
     ];
-    candidates.sort();
+    for (let i = 0; i < candidates.length - 1; i++) {
+      assert(candidates[i].toLowerCase() <= candidates[i + 1].toLowerCase());
+    }
 
     return {
       previous: candidates[week % candidates.length],
