@@ -504,7 +504,7 @@ fn build_multiversion_body(shell: *Shell, options: struct {
             .mode = .write_only,
         });
         defer old_current_release_fd.close();
-        try old_current_release_fd.chmod(0o777);
+        try old_current_release_fd.chmod(0o755);
     }
 
     // It's important to verify the previous current_release checksum - it can't be verified at
@@ -559,7 +559,7 @@ fn build_multiversion_body(shell: *Shell, options: struct {
             multiversion.Release{ .value = past_release },
             @tagName(options.arch),
         });
-        const mode_exec = if (builtin.os.tag == .windows) 0 else 0o777;
+        const mode_exec = if (builtin.os.tag == .windows) 0 else 0o755;
         try shell.cwd.writeFile(.{
             .sub_path = past_name,
             .data = past_binary_contents[arch_offsets.body_offset..][past_offset..][0..past_size],
@@ -677,7 +677,7 @@ fn macos_universal_binary_build(
 
     var output_file = try shell.project_root.createFile(output_path, .{
         .exclusive = true,
-        .mode = if (builtin.target.os.tag == .windows) 0 else 0o777,
+        .mode = if (builtin.target.os.tag == .windows) 0 else 0o755,
     });
     defer output_file.close();
 

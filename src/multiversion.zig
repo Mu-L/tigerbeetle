@@ -763,7 +763,7 @@ pub const MultiversionOS = struct {
             },
 
             .macos, .windows => blk: {
-                const mode = if (builtin.target.os.tag == .macos) 0o777 else 0;
+                const mode = if (builtin.target.os.tag == .macos) 0o755 else 0;
                 const file = std.fs.createFileAbsolute(
                     target_path,
                     .{ .read = true, .truncate = true, .mode = mode },

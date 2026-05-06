@@ -1005,7 +1005,7 @@ pub const IO = struct {
             .format => {
                 flags.CREAT = true;
                 flags.EXCL = true;
-                mode = 0o666;
+                mode = 0o600;
                 log.info("creating \"{s}\"...", .{relative_path});
             },
             .open, .inspect => {
