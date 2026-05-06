@@ -19,15 +19,20 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - &checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with: { fetch-depth: 2147483647, fetch-tags: true } # Fetch history for "git tag" in build.zig.
-      - run: shellcheck ./zig/download.sh
-      - shell: pwsh
-        run: Invoke-ScriptAnalyzer -Path zig/download.win.ps1 -Severity Error,Warning,Information -EnableExit
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      - &cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        # actions/cache (as of v5.0.5) routinely flakes under windows -- it just prints
+        # "Cache hit for: Windows-X64-(hash)" and then exits with no other info.
+        continue-on-error: ${{ startsWith(runner.os, 'Windows') }}
         with:
           path: ./zig/cache
           key: ${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('./zig/download.sh') }}
+      - run: shellcheck ./zig/download.sh
+      - shell: pwsh
+        run: Invoke-ScriptAnalyzer -Path zig/download.win.ps1 -Severity Error,Warning,Information -EnableExit
       - run: ./zig/download.ps1 && ./zig/zig build ci -- smoke
 
   test:
@@ -46,19 +51,15 @@ jobs:
         run: | # Allow unshare for vortex.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_unconfined=0
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with: { fetch-depth: 2147483647, fetch-tags: true } # Fetch full history for tidy.
+      - *checkout
+      - *cache
       - run: ./zig/download.ps1 && ./zig/zig build ci -- test
 
   test_aof:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with: { fetch-depth: 2147483647, fetch-tags: true } # Fetch history for "git tag" in build.zig.
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ./zig/cache
-          key: ${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('./zig/download.sh') }}
+      - *checkout
+      - *cache
       - run: ./zig/download.ps1 && ./zig/zig build ci -- aof
 
   clients:
@@ -106,13 +107,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - run: git config --global core.autocrlf false
+      - *checkout
+      - *cache
       - if: matrix.os == 'ubuntu-latest' || matrix.os == 'ubuntu-latest-arm64'
         run: | # Allow unshare for vortex.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_unconfined=0
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with: { fetch-depth: 2147483647, fetch-tags: true } # Fetch history for "git tag" in build.zig.
-
       - if: matrix.language == 'dotnet'
         uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
         with: { dotnet-version: "${{ matrix.language_version }}" }
@@ -138,13 +138,6 @@ jobs:
       - if: matrix.language == 'python'
         run: pip install build hatch pytest 'mypy<=1.18.2'
 
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        # actions/cache (as of v5.0.5) routinely flakes under windows -- it just prints
-        # "Cache hit for: Windows-X64-(hash)" and then exits with no other info.
-        continue-on-error: ${{ matrix.os == 'windows-latest' }}
-        with:
-          path: ./zig/cache
-          key: ${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('./zig/download.sh') }}
       - run: ./zig/download.ps1 && ./zig/zig build ci -- ${{ matrix.language }}
 
   devhub:
@@ -155,14 +148,10 @@ jobs:
       id-token: write
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with: { fetch-depth: 2147483647, fetch-tags: true } # Fetch history for "git tag" in build.zig.
+      - *checkout
+      - *cache
       - run: sudo apt-get update && sudo apt-get install -y kcov
       - run: sudo rm -rf /usr/local/lib/android # Free up disk space for benchmarking.
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ./zig/cache
-          key: ${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('./zig/download.sh') }}
       - run: ./zig/download.ps1
 
       # Dummy devhub run - checks that all the devhub tests pass in CI. They are run again, in main
