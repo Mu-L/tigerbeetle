@@ -1580,7 +1580,7 @@ pub const IO = struct {
                     .format => {
                         flags.CREAT = true;
                         flags.EXCL = true;
-                        mode = 0o666;
+                        mode = 0o600;
                         log.info("creating \"{s}\"...", .{relative_path});
                     },
                     .open, .inspect => {
@@ -1786,7 +1786,7 @@ pub const IO = struct {
         const path: [:0]const u8 = "fs_supports_direct_io-" ++ cookie ++ "";
         const dir = std.fs.Dir{ .fd = dir_fd };
         const flags: posix.O = .{ .CLOEXEC = true, .CREAT = true, .TRUNC = true };
-        const fd = try posix.openatZ(dir_fd, path, flags, 0o666);
+        const fd = try posix.openatZ(dir_fd, path, flags, 0o600);
         defer posix.close(fd);
         defer dir.deleteFile(path) catch {};
 

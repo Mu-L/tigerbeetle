@@ -253,7 +253,7 @@ pub fn file_make_executable(shell: *Shell, path: []const u8) !void {
         const fd = try shell.cwd.openFile(path, .{ .mode = .read_write });
         defer fd.close();
 
-        try fd.chmod(0o777);
+        try fd.chmod(0o755);
     }
 }
 
