@@ -623,8 +623,9 @@ pub fn ClusterType(comptime StateMachineType: anytype) type {
             assert(cluster.replica_health[replica_index] == .reformatting);
 
             const reformat = &cluster.replica_reformats[replica_index].?;
-            const result = reformat.done() orelse return;
-            assert(result == .ok);
+            if (reformat.pending()) return;
+
+            reformat.format() catch |err| fatal(.correctness, "reformat: {}", .{err});
 
             reformat.deinit(cluster.allocator);
             cluster.replica_reformats[replica_index] = null;

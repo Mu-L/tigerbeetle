@@ -16,7 +16,7 @@
 //!   being lost, and we can't remember any promises we made.
 //! - Likewise, we don't want to go to view + 1 -- if we were the first to collect a EV quorum
 //!   before being lost, we might have sent a JV. Since we don't remember, we must skip past
-//!   `view + 11 to ensure that we don't send a different JV. (We have the invariant that if a
+//!   `view + 1` to ensure that we don't send a different JV. (We have the invariant that if a
 //!   replica sends a JV for a given view, then all JV's it sends for that view will be
 //!   identical.)
 const std = @import("std");
@@ -24,7 +24,7 @@ const assert = std.debug.assert;
 
 const constants = @import("../constants.zig");
 const vsr = @import("../vsr.zig");
-const format = @import("./replica_format.zig").format;
+const replica_format = @import("./replica_format.zig");
 
 const log = std.log.scoped(.reformat);
 
@@ -50,7 +50,7 @@ pub fn ReplicaReformatType(
         storage: *Storage,
 
         requests_done: u32 = 0,
-        result: ?Result = null,
+        safe_view: ?u32 = null,
 
         pub fn init(
             allocator: std.mem.Allocator,
@@ -84,6 +84,27 @@ pub fn ReplicaReformatType(
             reformat.client.register(client_register_callback, user_data);
         }
 
+        pub fn pending(reformat: *const ReplicaReformat) bool {
+            return reformat.safe_view == null;
+        }
+
+        pub fn format(reformat: *ReplicaReformat) !void {
+            assert(reformat.safe_view != null);
+            const safe_view = reformat.safe_view.?;
+            reformat.safe_view = null;
+
+            var options = reformat.options;
+            assert(options.view == null);
+            options.view = safe_view;
+
+            try replica_format.format(
+                Storage,
+                reformat.allocator,
+                reformat.storage,
+                options,
+            );
+        }
+
         fn client_register_callback(
             user_data: u128,
             register_result: *const vsr.RegisterResult,
@@ -91,6 +112,7 @@ pub fn ReplicaReformatType(
             _ = register_result;
             const reformat: *ReplicaReformat = @ptrFromInt(@as(usize, @intCast(user_data)));
             assert(reformat.requests_done == 0);
+            assert(reformat.safe_view == null);
 
             log.debug("{}: register", .{reformat.options.replica});
 
@@ -99,6 +121,7 @@ pub fn ReplicaReformatType(
         }
 
         fn client_request(reformat: *ReplicaReformat) void {
+            assert(reformat.safe_view == null);
             assert(reformat.requests_done < constants.pipeline_prepare_queue_max);
 
             log.debug("{}: request start={}", .{
@@ -136,6 +159,7 @@ pub fn ReplicaReformatType(
             const reformat: *ReplicaReformat = @ptrFromInt(@as(usize, @intCast(user_data)));
             assert(reformat.requests_done > 0);
             assert(reformat.requests_done < constants.pipeline_prepare_queue_max);
+            assert(reformat.safe_view == null);
             assert(results.len == 0);
 
             log.debug("{}: request done={}", .{
@@ -146,17 +170,7 @@ pub fn ReplicaReformatType(
             reformat.requests_done += 1;
             if (reformat.requests_done == constants.pipeline_prepare_queue_max) {
                 // +2 since we might have sent a JV as part of +1 before we crashed.
-                reformat.options.view = reformat.client.view + 2;
-                format(
-                    Storage,
-                    reformat.allocator,
-                    reformat.storage,
-                    reformat.options,
-                ) catch |err| {
-                    reformat.result = .{ .failed = err };
-                    return;
-                };
-                reformat.result = .ok;
+                reformat.safe_view = reformat.client.view + 2;
             } else {
                 reformat.client_request();
             }
