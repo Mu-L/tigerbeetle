@@ -549,16 +549,15 @@ fn command_reformat(
     defer reformatter.deinit(gpa);
 
     reformatter.start();
-    while (reformatter.done() == null) {
+    while (reformatter.pending()) {
         client.tick();
         try io.run_for_ns(constants.tick_ms * std.time.ns_per_ms);
     }
-    switch (reformatter.done().?) {
-        .failed => |err| {
-            log.err("{}: error: {s}", .{ args.replica, @errorName(err) });
-            return err;
-        },
-        .ok => log.info("{}: success", .{args.replica}),
+    if (reformatter.format()) {
+        log.info("{}: success", .{args.replica});
+    } else |err| {
+        log.err("{}: error: {s}", .{ args.replica, @errorName(err) });
+        return err;
     }
 }
 
