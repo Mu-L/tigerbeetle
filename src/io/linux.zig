@@ -124,7 +124,7 @@ pub const IO = struct {
         defer self.stats.trace();
 
         var timer = try std.time.Timer.start();
-        defer self.stats.now.time_run_for_ns.ns += timer.read();
+        defer self.stats.window.time_run_for_ns.ns += timer.read();
 
         // We must use the same clock source used by io_uring (CLOCK_MONOTONIC) since we specify the
         // timeout below as an absolute value. Otherwise, we may deadlock if the clock sources are
@@ -210,7 +210,7 @@ pub const IO = struct {
             }
         }
 
-        self.stats.now.time_callbacks.ns += timer.read();
+        self.stats.window.time_callbacks.ns += timer.read();
 
         // At this point, unqueued could have completions either by 1) those who didn't get an SQE
         // during the popping of unqueued or 2) completion.complete() which start new IO. These

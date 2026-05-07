@@ -57,7 +57,7 @@ pub const IO = struct {
         defer self.stats.trace();
 
         var timer = try std.time.Timer.start();
-        defer self.stats.now.time_run_for_ns.ns += timer.read();
+        defer self.stats.window.time_run_for_ns.ns += timer.read();
 
         const Callback = struct {
             fn on_timeout(
@@ -152,7 +152,7 @@ pub const IO = struct {
                 .completion = completion,
             });
         }
-        self.stats.now.time_callbacks.ns += timer.read();
+        self.stats.window.time_callbacks.ns += timer.read();
     }
 
     fn flush_timeouts(self: *IO) ?u64 {
