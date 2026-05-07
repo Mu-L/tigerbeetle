@@ -8995,24 +8995,14 @@ pub fn ReplicaType(
             const message = self.create_message_from_header(header);
             defer self.message_bus.unref(message);
 
-            var replica: u8 = 0;
-            while (replica < self.replica_count) : (replica += 1) {
-                if (replica != self.replica) {
-                    self.send_message_to_replica_base(replica, message);
-                }
-            }
+            self.send_message_to_other_replicas_base(message);
         }
 
         fn send_header_to_other_replicas_and_standbys(self: *Replica, header: Header) void {
             const message = self.create_message_from_header(header);
             defer self.message_bus.unref(message);
 
-            var replica: u8 = 0;
-            while (replica < self.node_count) : (replica += 1) {
-                if (replica != self.replica) {
-                    self.send_message_to_replica_base(replica, message);
-                }
-            }
+            self.send_message_to_other_replicas_and_standbys(message);
         }
 
         fn send_header_to_replica(self: *Replica, replica: u8, header: Header) void {
@@ -9031,8 +9021,8 @@ pub fn ReplicaType(
         }
 
         fn send_message_to_other_replicas_and_standbys(self: *Replica, message: *Message) void {
-            var replica: u8 = 0;
-            while (replica < self.node_count) : (replica += 1) {
+            for (0..self.node_count) |replica_usize| {
+                const replica: u8 = @intCast(replica_usize);
                 if (replica != self.replica) {
                     self.send_message_to_replica_base(replica, message);
                 }
@@ -9040,8 +9030,8 @@ pub fn ReplicaType(
         }
 
         fn send_message_to_other_replicas_base(self: *Replica, message: *Message) void {
-            var replica: u8 = 0;
-            while (replica < self.replica_count) : (replica += 1) {
+            for (0..self.replica_count) |replica_usize| {
+                const replica: u8 = @intCast(replica_usize);
                 if (replica != self.replica) {
                     self.send_message_to_replica_base(replica, message);
                 }
