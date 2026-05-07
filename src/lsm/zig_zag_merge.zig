@@ -97,12 +97,12 @@ pub fn ZigZagMergeIteratorType(
         /// Algorithm is conflict driven --- if any two streams disagree
         /// on the next key, one of the streams can be advanced (probed).
         /// In particular, if any stream is empty, there are no common keys.
-        /// Converesly, the algorithm finishes when there is no disagreement:
+        /// Conversely, the algorithm finishes when there is no disagreement:
         /// - some streams are pending (need IO to fetch next key from disk),
         /// - _all_ other streams agree on the key.
         ///
         /// The schedule to interrogate the streams is arbitrary. We use
-        /// simple round-robin: going in circles, reseting the "tour" every
+        /// simple round-robin: going in circles, resetting the "tour" every
         /// time a conflict is detected, until we complete a full circle
         /// without a reset. The schedule ensures that any pending stream is
         /// probed with our best guess for optimal IO.
@@ -129,7 +129,7 @@ pub fn ZigZagMergeIteratorType(
             : (tour_index = (tour_index + 1) % it.streams_count) {
                 assert(tour_total == tour_equal + tour_pending);
 
-                // Optimization: don't re-probe already pending streams,
+                // Optimization: don't re-probe already pending streams
                 // until the very end, when the final candidate is known.
                 if (pending.is_set(tour_index)) {
                     tour_total += 1;
@@ -170,7 +170,7 @@ pub fn ZigZagMergeIteratorType(
             if (tour_pending == it.streams_count) return error.Pending;
 
             // Completing the optimization, probe pending streams one last time.
-            // We minize probe & peek virtual function calls, keeping IO optimal.
+            // We minimize probe & peek virtual function calls, keeping IO optimal.
             for (0..it.streams_count) |index_usize| {
                 const stream_index: u32 = @intCast(index_usize);
                 if (pending.is_set(stream_index)) {
