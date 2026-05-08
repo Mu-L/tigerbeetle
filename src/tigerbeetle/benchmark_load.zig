@@ -528,15 +528,19 @@ const Benchmark = struct {
             });
         }
 
-        b.client_timeouts[client_index] = .{ .benchmark = b, .client_index = client_index };
-        b.clients_busy.set(client_index);
-        b.io.timeout(
-            *Timeout,
-            &b.client_timeouts[client_index],
-            create_transfers_next,
-            &b.client_timeouts[client_index].completion,
-            @intCast(b.transfer_batch_delay.ns),
-        );
+        if (b.transfer_batch_delay.ns == 0) {
+            b.create_transfers(client_index);
+        } else {
+            b.client_timeouts[client_index] = .{ .benchmark = b, .client_index = client_index };
+            b.clients_busy.set(client_index);
+            b.io.timeout(
+                *Timeout,
+                &b.client_timeouts[client_index],
+                create_transfers_next,
+                &b.client_timeouts[client_index].completion,
+                @intCast(b.transfer_batch_delay.ns),
+            );
+        }
     }
 
     fn create_transfers_next(

@@ -52,16 +52,19 @@ pub const TimeOS = struct {
         return .{
             .context = self,
             .vtable = &.{
-                .monotonic = monotonic,
+                .monotonic = vtable_monotonic,
                 .realtime = realtime,
                 .tick = tick,
             },
         };
     }
 
-    fn monotonic(context: *anyopaque) u64 {
+    fn vtable_monotonic(context: *anyopaque) u64 {
         const self: *TimeOS = @ptrCast(@alignCast(context));
+        return self.monotonic().ns;
+    }
 
+    pub fn monotonic(self: *TimeOS) Instant {
         const m = blk: {
             if (is_windows) break :blk monotonic_windows();
             if (is_darwin) break :blk monotonic_darwin();
@@ -72,7 +75,7 @@ pub const TimeOS = struct {
         // "Oops!...I Did It Again"
         if (m < self.monotonic_guard) @panic("a hardware/kernel bug regressed the monotonic clock");
         self.monotonic_guard = m;
-        return m;
+        return .{ .ns = m };
     }
 
     fn monotonic_windows() u64 {

@@ -170,6 +170,7 @@ pub const Event = union(enum) {
     loop_run_for_ns,
     loop_tick,
     loop_callbacks,
+    loop_kernel,
 
     pub const Tag = std.meta.Tag(Event);
 
@@ -249,6 +250,7 @@ pub const EventTiming = union(Event.Tag) {
     loop_run_for_ns,
     loop_tick,
     loop_callbacks,
+    loop_kernel,
 
     pub const slot_limits = std.enums.EnumArray(Event.Tag, u32).init(.{
         .replica_commit = enum_count(CommitStage.Tag),
@@ -276,6 +278,7 @@ pub const EventTiming = union(Event.Tag) {
         .loop_run_for_ns = 1,
         .loop_tick = 1,
         .loop_callbacks = 1,
+        .loop_kernel = 1,
     });
 
     pub const slot_bases = array: {
@@ -413,6 +416,7 @@ pub const EventTracing = union(Event.Tag) {
     loop_run_for_ns,
     loop_tick,
     loop_callbacks,
+    loop_kernel,
 
     pub const stack_limits = std.enums.EnumArray(Event.Tag, u32).init(.{
         .replica_commit = 1,
@@ -440,6 +444,7 @@ pub const EventTracing = union(Event.Tag) {
         .loop_run_for_ns = 1,
         .loop_tick = 1,
         .loop_callbacks = 1,
+        .loop_kernel = 1,
     });
 
     pub const stack_bases = array: {
@@ -522,7 +527,11 @@ pub const EventTracing = union(Event.Tag) {
     // captured, but no per trace logs or JSON will be emitted.
     pub fn aggregate_only(event: *const EventTracing) bool {
         return switch (event.*) {
-            .loop_run_for_ns, .loop_tick, .loop_callbacks => true,
+            .loop_run_for_ns,
+            .loop_tick,
+            .loop_callbacks,
+            .loop_kernel,
+            => true,
             else => false,
         };
     }
@@ -568,6 +577,8 @@ pub const EventMetric = union(enum) {
     compaction_values_physical: struct { tree: TreeEnum },
     compaction_values_logical: struct { tree: TreeEnum },
 
+    loop_syscalls,
+
     pub const slot_limits = std.enums.EnumArray(Tag, u32).init(.{
         .table_count_visible = enum_count(TreeEnum),
         .table_count_visible_max = enum_count(TreeEnum),
@@ -605,6 +616,7 @@ pub const EventMetric = union(enum) {
         .message_bus_connections_max = 1,
         .compaction_values_physical = enum_count(TreeEnum),
         .compaction_values_logical = enum_count(TreeEnum),
+        .loop_syscalls = 1,
     });
 
     pub const slot_bases = array: {
@@ -823,6 +835,7 @@ test "EventTiming slot doesn't have collisions" {
             .loop_run_for_ns => .loop_run_for_ns,
             .loop_tick => .loop_tick,
             .loop_callbacks => .loop_callbacks,
+            .loop_kernel => .loop_kernel,
         };
         try stacks.append(allocator, event.slot());
     }

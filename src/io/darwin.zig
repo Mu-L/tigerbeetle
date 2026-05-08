@@ -16,6 +16,7 @@ pub const IO = struct {
     pub const TCPOptions = common.TCPOptions;
     pub const ListenOptions = common.ListenOptions;
     pub const Stats = common.Stats;
+    pub const NextTickSource = common.NextTickSource;
 
     kq: fd_t,
     event_id: Event = 0,
@@ -24,6 +25,7 @@ pub const IO = struct {
     timeouts: QueueType(Completion) = QueueType(Completion).init(.{ .name = "io_timeouts" }),
     completed: QueueType(Completion) = QueueType(Completion).init(.{ .name = "io_completed" }),
     io_pending: QueueType(Completion) = QueueType(Completion).init(.{ .name = "io_pending" }),
+    run_for_ns_active: bool = false,
 
     stats: common.Stats = .{},
 
@@ -44,6 +46,8 @@ pub const IO = struct {
 
     /// Pass all queued submissions to the kernel and peek for completions.
     pub fn run(self: *IO) !void {
+        assert(!self.run_for_ns_active);
+
         return self.flush(false);
     }
 
@@ -51,6 +55,12 @@ pub const IO = struct {
     /// The `nanoseconds` argument is a u63 to allow coercion to the i64 used
     /// in the __kernel_timespec struct.
     pub fn run_for_ns(self: *IO, nanoseconds: u63) !void {
+        assert(!self.run_for_ns_active);
+        self.run_for_ns_active = true;
+        defer {
+            assert(self.run_for_ns_active);
+            self.run_for_ns_active = false;
+        }
         defer self.stats.trace();
 
         var timer = try std.time.Timer.start();
@@ -175,7 +185,7 @@ pub const IO = struct {
         while (timeouts_iterator.next()) |completion| {
 
             // NOTE: We could cache `now` above the loop but monotonic() should be cheap to call.
-            const now = self.time_os.time().monotonic().ns;
+            const now = self.time_os.monotonic().ns;
             const expires = completion.operation.timeout.expires;
 
             // NOTE: remove() could be O(1) here with a doubly-linked-list
@@ -249,6 +259,9 @@ pub const IO = struct {
             buf: [*]const u8,
             len: u32,
             offset: u64,
+        },
+        next_tick: struct {
+            source: NextTickSource,
         },
     };
 
@@ -743,24 +756,8 @@ pub const IO = struct {
         completion: *Completion,
         nanoseconds: u63,
     ) void {
-        // Special case a zero timeout as a yield.
-        if (nanoseconds == 0) {
-            completion.* = .{
-                .link = .{},
-                .context = context,
-                .operation = undefined,
-                .callback = struct {
-                    fn on_complete(_io: *IO, _completion: *Completion) void {
-                        _ = _io;
-                        const _context: Context = @ptrCast(@alignCast(_completion.context));
-                        callback(_context, _completion, {});
-                    }
-                }.on_complete,
-            };
-
-            self.completed.push(completion);
-            return;
-        }
+        // Use `next_tick()` if you're looking for a yield.
+        assert(nanoseconds > 0);
 
         self.submit(
             context,
@@ -768,7 +765,7 @@ pub const IO = struct {
             completion,
             .timeout,
             .{
-                .expires = self.time_os.time().monotonic().ns + nanoseconds,
+                .expires = self.time_os.monotonic().ns + nanoseconds,
             },
             struct {
                 fn do_operation(_: anytype) TimeoutError!void {
@@ -776,6 +773,49 @@ pub const IO = struct {
                 }
             },
         );
+    }
+
+    pub const NextTickResult = void;
+
+    /// Schedule a deferred callback that doesn't involve kernel IO.
+    pub fn next_tick(
+        self: *IO,
+        comptime Context: type,
+        context: Context,
+        comptime callback: fn (
+            context: Context,
+            completion: *Completion,
+            result: NextTickResult,
+        ) void,
+        completion: *Completion,
+        source: NextTickSource,
+    ) void {
+        completion.* = .{
+            .link = .{},
+            .context = context,
+            .operation = .{ .next_tick = .{ .source = source } },
+            .callback = struct {
+                fn on_complete(_: *IO, _completion: *Completion) void {
+                    callback(@ptrCast(@alignCast(_completion.context)), _completion, {});
+                }
+            }.on_complete,
+        };
+        self.completed.push(completion);
+    }
+
+    /// Remove all next_tick entries with the given source from the completed queue.
+    pub fn reset_next_tick(self: *IO, source: NextTickSource) void {
+        var completed = self.completed;
+        self.completed.reset();
+
+        while (completed.pop()) |completion| {
+            if (completion.operation == .next_tick and
+                completion.operation.next_tick.source == source)
+            {
+                continue;
+            }
+            self.completed.push(completion);
+        }
     }
 
     pub const WriteError = posix.PWriteError;

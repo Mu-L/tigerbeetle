@@ -404,6 +404,10 @@ test "event" {
 }
 
 test "submission queue full" {
+    // This test purposefully overflows the queue, set the log level to error to suppress the
+    // warning from IO.
+    std.testing.log_level = .err;
+
     const ms = 20;
     const count = 10;
 
@@ -447,6 +451,10 @@ test "submission queue full" {
 }
 
 test "tick to wait" {
+    // This test purposefully overflows the queue, set the log level to error to suppress the
+    // warning from IO.
+    std.testing.log_level = .err;
+
     // Use only IO.run() to see if pending IO is actually processed.
 
     try struct {
