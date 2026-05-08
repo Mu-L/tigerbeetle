@@ -60,8 +60,10 @@ pub const IO = struct {
     pub fn run_for_ns(self: *IO, nanoseconds: u63) !void {
         assert(!self.run_for_ns_active);
         self.run_for_ns_active = true;
-        defer self.run_for_ns_active = false;
-        defer assert(self.run_for_ns_active);
+        defer {
+            assert(self.run_for_ns_active);
+            self.run_for_ns_active = false;
+        }
 
         defer self.stats.trace();
 
@@ -172,7 +174,7 @@ pub const IO = struct {
         var timeouts_iterator = self.timeouts.iterate();
         while (timeouts_iterator.next()) |completion| {
             // Lazily get the current time.
-            const now = current_time orelse self.time_os.time().monotonic().ns;
+            const now = current_time orelse self.time_os.monotonic().ns;
             current_time = now;
 
             // Move the completion to completed if it expired.
@@ -1049,7 +1051,7 @@ pub const IO = struct {
             callback,
             completion,
             .timeout,
-            .{ .deadline = self.time_os.time().monotonic().ns + nanoseconds },
+            .{ .deadline = self.time_os.monotonic().ns + nanoseconds },
             struct {
                 fn do_operation(ctx: Completion.Context, op: anytype) TimeoutError!void {
                     _ = ctx;

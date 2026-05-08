@@ -10,6 +10,7 @@ const log = std.log.scoped(.io);
 
 const constants = @import("../constants.zig");
 const stdx = @import("stdx");
+const TimeOS = @import("../time.zig").TimeOS;
 const common = @import("./common.zig");
 const QueueType = @import("../queue.zig").QueueType;
 const buffer_limit = @import("../io.zig").buffer_limit;
@@ -58,6 +59,8 @@ pub const IO = struct {
     } = .inactive,
 
     stats: common.Stats = .{},
+
+    time_os: TimeOS = .{},
 
     run_for_ns_active: bool = false,
 
@@ -116,18 +119,23 @@ pub const IO = struct {
 
         assert(!self.run_for_ns_active);
         self.run_for_ns_active = true;
-        defer self.run_for_ns_active = false;
-        defer assert(self.run_for_ns_active);
+        defer {
+            assert(self.run_for_ns_active);
+            self.run_for_ns_active = false;
+        }
 
         defer self.stats.trace();
 
         var timer = try std.time.Timer.start();
         defer self.stats.window.time_run_for_ns.ns += timer.read();
 
-        while (timer.read() < nanoseconds) {
+        var now = self.time_os.monotonic();
+        const deadline = now.add(.{ .ns = nanoseconds });
+
+        while (now.ns < deadline.ns) : (now = self.time_os.monotonic()) {
             // If there are callbacks ready to run, don't wait in the kernel: the callbacks may
             // queue more work, which should be submitted as soon as possible.
-            const block_ns = if (self.completed.count() == 0) nanoseconds -| timer.read() else 0;
+            const block_ns = if (self.completed.count() == 0) deadline.ns -| now.ns else 0;
 
             try self.flush_submissions(@intCast(block_ns));
             try self.flush_completions(0);
@@ -151,7 +159,8 @@ pub const IO = struct {
 
         while (true) {
             var timer = std.time.Timer.start() catch unreachable;
-            // Doesn't account for flush_completions, which is assumed to be very rare and fast.
+            // Doesn't account for flush_completions below; which indicates a bad assumption either
+            // on our sizing of the loop, or a bug in the kernel.
             defer self.stats.window.time_kernel.ns += timer.read();
 
             const submitted = submit_and_wait_timeout(
@@ -165,11 +174,14 @@ pub const IO = struct {
                 // Be careful also that copy_cqes() will flush before entering to wait (it does):
                 // https://github.com/axboe/liburing/commit/35c199c48dfd54ad46b96e386882e7ac341314c5
                 error.CompletionQueueOvercommitted, error.SystemResources => {
-                    std.log.warn(
+                    log.err(
                         "flush_submissions: completion queue overcommitted.",
                         .{},
                     );
+
+                    // NB: enforcing timeout here is impossible, so don't even try.
                     try self.flush_completions(1);
+
                     continue;
                 },
                 else => return err,
@@ -244,7 +256,7 @@ pub const IO = struct {
 
         const sqe = self.ring.get_sqe() catch |err| switch (err) {
             error.SubmissionQueueFull => blk: {
-                std.log.warn(
+                log.warn(
                     "enqueue: submission queue full. flushing. consider resizing IO.init()",
                     .{},
                 );
@@ -349,31 +361,32 @@ pub const IO = struct {
                 flags |= linux.IORING_ENTER_GETEVENTS;
             }
 
+            // Use EXT_ARG to pass the timeout directly to io_uring_enter.
+            flags |= linux.IORING_ENTER_EXT_ARG;
+
+            var arg = linux.io_uring_getevents_arg{
+                .sigmask = 0,
+                .sigmask_sz = linux.NSIG / 8,
+                .pad = 0,
+                .ts = 0,
+            };
+
+            var ts: linux.kernel_timespec = .{
+                .sec = wait_duration_ns / std.time.ns_per_s,
+                .nsec = wait_duration_ns % std.time.ns_per_s,
+            };
+
+            // Don't be tempted to move `ts` inside here: it's on the stack, and referenced by arg.
             if (wait_nr > 0 and wait_duration_ns > 0) {
-                // Use EXT_ARG to pass the timeout directly to io_uring_enter.
-                flags |= linux.IORING_ENTER_EXT_ARG;
-
-                var ts: linux.kernel_timespec = .{
-                    .sec = wait_duration_ns / std.time.ns_per_s,
-                    .nsec = wait_duration_ns % std.time.ns_per_s,
-                };
-
-                var arg = linux.io_uring_getevents_arg{
-                    .sigmask = 0,
-                    .sigmask_sz = linux.NSIG / 8,
-                    .pad = 0,
-                    .ts = @intFromPtr(&ts),
-                };
-
-                return enter_ext(ring, submitted, wait_nr, flags, &arg) catch |err| switch (err) {
-                    // Timeout expired before min_complete CQEs arrived, but the SQEs
-                    // were still submitted to the kernel by flush_sq() above.
-                    error.TimeoutExpired => submitted,
-                    else => err,
-                };
-            } else {
-                return try ring.enter(submitted, wait_nr, flags);
+                arg.ts = @intFromPtr(&ts);
             }
+
+            return enter_ext(ring, submitted, wait_nr, flags, &arg) catch |err| switch (err) {
+                // Timeout expired before min_complete CQEs arrived, but the SQEs
+                // were still submitted to the kernel by flush_sq() above.
+                error.TimeoutExpired => submitted,
+                else => err,
+            };
         }
         return submitted;
     }

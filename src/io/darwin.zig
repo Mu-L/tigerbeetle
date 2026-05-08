@@ -57,9 +57,10 @@ pub const IO = struct {
     pub fn run_for_ns(self: *IO, nanoseconds: u63) !void {
         assert(!self.run_for_ns_active);
         self.run_for_ns_active = true;
-        defer self.run_for_ns_active = false;
-        defer assert(self.run_for_ns_active);
-
+        defer {
+            assert(self.run_for_ns_active);
+            self.run_for_ns_active = false;
+        }
         defer self.stats.trace();
 
         var timer = try std.time.Timer.start();
@@ -184,7 +185,7 @@ pub const IO = struct {
         while (timeouts_iterator.next()) |completion| {
 
             // NOTE: We could cache `now` above the loop but monotonic() should be cheap to call.
-            const now = self.time_os.time().monotonic().ns;
+            const now = self.time_os.monotonic().ns;
             const expires = completion.operation.timeout.expires;
 
             // NOTE: remove() could be O(1) here with a doubly-linked-list
@@ -764,7 +765,7 @@ pub const IO = struct {
             completion,
             .timeout,
             .{
-                .expires = self.time_os.time().monotonic().ns + nanoseconds,
+                .expires = self.time_os.monotonic().ns + nanoseconds,
             },
             struct {
                 fn do_operation(_: anytype) TimeoutError!void {

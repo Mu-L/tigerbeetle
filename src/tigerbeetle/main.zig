@@ -88,6 +88,8 @@ pub fn main() !void {
     // Try and init IO early, before a file has even been created, so if it fails (eg, io_uring
     // is not available) there won't be a dangling file.
     const io_entries: u12 = switch (command) {
+        // In format, all writes are issued in parallel with no backpressue. It's nice and simple,
+        // but means a larger loop size is needed to avoid a warning.
         .format, .recover => 2048,
         else => 128,
     };

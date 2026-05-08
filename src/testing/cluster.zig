@@ -627,9 +627,6 @@ pub fn ClusterType(comptime StateMachineType: anytype) type {
 
             reformat.format() catch |err| fatal(.correctness, "reformat: {}", .{err});
 
-            vsr.format(Storage, cluster.allocator, reformat.storage, reformat.options) catch
-                unreachable;
-
             reformat.deinit(cluster.allocator);
             cluster.replica_reformats[replica_index] = null;
             cluster.replica_health[replica_index] = .down;

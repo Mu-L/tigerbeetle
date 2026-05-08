@@ -458,6 +458,8 @@ pub fn MessageBusType(comptime IO: type) type {
             assert(bus.replicas[replica] == null);
             bus.replicas[replica] = connection;
 
+            comptime assert(constants.connection_delay_min.to_ms() > 0);
+
             const attempts = &bus.replicas_connect_attempts[replica];
             const ms = vsr.exponential_backoff_with_jitter(
                 &bus.prng,
@@ -476,13 +478,14 @@ pub fn MessageBusType(comptime IO: type) type {
             assert(!connection.recv_submitted);
             connection.recv_submitted = true;
 
+            assert(ms > 0);
             bus.io.timeout(
                 *MessageBus,
                 bus,
                 connect_timeout_callback,
                 // We use `recv_completion` for the connection `timeout()` and `connect()` calls
                 &connection.recv_completion,
-                @as(u63, @intCast(@max(ms * std.time.ns_per_ms, 1))),
+                @as(u63, @intCast(ms * std.time.ns_per_ms)),
             );
         }
 
