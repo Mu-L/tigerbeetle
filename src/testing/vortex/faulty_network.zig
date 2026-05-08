@@ -160,10 +160,11 @@ const Pipe = struct {
             );
             const jitter_diff_ms: i32 = @as(i32, @intCast(jitter_size)) *
                 (if (pipe.connection.network.prng.boolean()) @as(i32, 1) else -1);
+            // timeout(0) is banned - 1ns is close enough.
             const timeout_duration_ns = @as(
                 u63,
                 @intCast(@as(i32, @intCast(delay.time_ms)) + jitter_diff_ms),
-            ) * std.time.ns_per_ms;
+            ) * std.time.ns_per_ms + 1;
             assert(timeout_duration_ns > 0);
 
             log.debug("delaying {} ({d},{d})", .{
