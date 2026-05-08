@@ -3,6 +3,51 @@
 Subscribe to the [tracking issue #2231](https://github.com/tigerbeetle/tigerbeetle/issues/2231)
 to receive notifications about breaking changes!
 
+## TigerBeetle 0.17.4
+
+Released: 2026-05-08
+
+As of TigerBeetle 0.17.4, the minimum required Linux kernel version is 5.11.
+
+### Safety And Performance
+
+- [#3619](https://github.com/tigerbeetle/tigerbeetle/pull/3619)
+
+  Refactor and simplify the Linux IO event loop, by directly embedding a timeout when calling
+  `io_uring_enter`, making `next_tick` a top level function (instead of executing all callbacks
+  back to back) and reentering the kernel after each callback.
+
+  Combined, these changes give a ~8% improvement on the standard benchmark, improve tail latencies
+  in certain edge cases, as waaell as prevent tick starvation under heavy load or slow disks.
+
+- [#3701](https://github.com/tigerbeetle/tigerbeetle/pull/3701)
+
+  Fix a bug in reformat caused by invoking `IO.run` from within `IO.run_for_ns`.
+
+- [#3680](https://github.com/tigerbeetle/tigerbeetle/pull/3680)
+
+  Track the object caches as metrics, to help with sizing (eg, `--cache-accounts`).
+
+- [#3693](https://github.com/tigerbeetle/tigerbeetle/pull/3693)
+
+  Fix file permissions to no longer ask for world readable/writable files when creating them.
+  Normally, this does get prevented by the default `umask`.
+
+### Internals
+
+- [#3698](https://github.com/tigerbeetle/tigerbeetle/pull/3698)
+
+  Add warnings when the event loop is slow.
+
+- [#3694](https://github.com/tigerbeetle/tigerbeetle/pull/3694),
+  [#3684](https://github.com/tigerbeetle/tigerbeetle/pull/3684)
+
+  Cache the Zig download for test workflows, add the flake count to Devhub and misc CI fixes.
+
+### TigerTracks 🎧
+
+- [Das alte Haus von Rocky Docky](https://www.youtube.com/watch?v=c4b1IMYFBso)
+
 ## TigerBeetle 0.17.3
 
 Released: 2026-05-01
