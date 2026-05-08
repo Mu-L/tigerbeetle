@@ -26,7 +26,7 @@ As of TigerBeetle 0.17.4, the minimum required Linux kernel version is 5.11.
 
 - [#3680](https://github.com/tigerbeetle/tigerbeetle/pull/3680)
 
-  Track the object caches as metrics, to help with sizing (eg, `--cache-accounts`).
+  Track the object caches as metrics, to help with sizing (e.g., `--cache-accounts`).
 
 - [#3693](https://github.com/tigerbeetle/tigerbeetle/pull/3693)
 
@@ -320,7 +320,7 @@ Released: 2026-03-20
 
 - [#3583](https://github.com/tigerbeetle/tigerbeetle/pull/3583)
 
-  Refactor our iops.zig to a more approriate home in stdx.
+  Refactor our iops.zig to a more appropriate home in stdx.
 
 ### TigerTracks 🎧
 
@@ -983,7 +983,7 @@ Released: 2025-10-31
 
 - [#3291](https://github.com/tigerbeetle/tigerbeetle/pull/3291)
 
-  Introduces `tigerbeetle inspect integrity` to verify offline that a datafile is uncorrupted.
+  Introduces `tigerbeetle inspect integrity` to verify offline that a data file is uncorrupted.
 
 - [#3254](https://github.com/tigerbeetle/tigerbeetle/pull/3254)
 
@@ -1136,7 +1136,7 @@ Released: 2025-10-03
 
 - [#3286](https://github.com/tigerbeetle/tigerbeetle/pull/3286)
 
-  After successfully adding a test that tests tests in
+  After successfully adding a test that tests in
   [#3136](https://github.com/tigerbeetle/tigerbeetle/pull/3136), we doubled down on this strategy
   and are adding a metric for tracking metrics.
 
@@ -1281,7 +1281,7 @@ Released: 2025-09-12
 
 - [#3206](https://github.com/tigerbeetle/tigerbeetle/pull/3206)
 
-  In order to avoid bimodality if a replica is down (eg, a client sends a request, doesn't hear
+  In order to avoid bimodality if a replica is down (e.g., a client sends a request, doesn't hear
   anything, eventually times out and tries a different replica) clients now proactively send their
   requests to the primary and a randomly selected replica.
 
@@ -1929,7 +1929,7 @@ Released: 2025-06-06
 Released: 2025-05-30
 
 This release includes the `tigerbeetle recover` subcommand, which can be used to _safely_ recover a
-replica that is permanantly lost.
+replica that is permanently lost.
 
 Additionally, it includes Change Data Capture (CDC) support to stream TigerBeetle state to Advanced
 Message Queuing Protocol (AMQP) targets, such as RabbitMQ and other compatible brokers.
@@ -1942,11 +1942,11 @@ CDC and `tigerbeetle recover`!
 
 - [#2996](https://github.com/tigerbeetle/tigerbeetle/pull/2996)
 
-  Add the `tigerbeetle recover` subcommand, to safely recover a replica that is permanantly lost
+  Add the `tigerbeetle recover` subcommand, to safely recover a replica that is permanently lost
   (e.g. if the SSD fails).
 
-  Earlier, the only way to recover a permanantly lost replica was using the `tigerbeetle format`
-  command. Howerver, this was unsafe, as a newly-formatted replica may nack prepares which its
+  Earlier, the only way to recover a permanently lost replica was using the `tigerbeetle format`
+  command. However, this was unsafe, as a newly-formatted replica may nack prepares which its
   previous incarnation acked -- a correctness bug.
 
 - [#2880](https://github.com/tigerbeetle/tigerbeetle/pull/2880)
@@ -2335,7 +2335,7 @@ accounts/transfers per batch.
 - [#2872](https://github.com/tigerbeetle/tigerbeetle/pull/2872),
   [#2873](https://github.com/tigerbeetle/tigerbeetle/pull/2873)
 
-  Fixes and improvemenents in the documentation.
+  Fixes and improvements in the documentation.
 
 ### TigerTracks 🎧
 
@@ -2389,7 +2389,7 @@ Released: 2025-03-31
 - [#2830](https://github.com/tigerbeetle/tigerbeetle/pull/2830)
 
   Allow `tigerbeetle inspect` to run on open data files. This helps with getting an idea what's
-  going on on a running cluster without needing to shut it down first.
+  going on a running cluster without needing to shut it down first.
 
 ### Internals
 
@@ -2423,7 +2423,7 @@ Released: 2025-03-31
 
 ### TigerTracks 🎧
 
-- [Pushing Ownwards](https://www.youtube.com/watch?v=a7AhS0SxE1s)
+- [Pushing Onwards](https://www.youtube.com/watch?v=a7AhS0SxE1s)
 
 ## TigerBeetle 0.16.33
 
