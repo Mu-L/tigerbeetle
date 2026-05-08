@@ -593,6 +593,7 @@ fn build_ci_script(
     const run_artifact = b.addRunArtifact(scripts);
     run_artifact.addArgs(argv);
     run_artifact.setEnvironmentVariable("ZIG_EXE", b.graph.zig_exe);
+    run_artifact.max_stdio_size = 128 * MiB; // Prevent error.StreamTooLong.
     hide_stderr(run_artifact);
     step_ci.dependOn(&run_artifact.step);
 }
