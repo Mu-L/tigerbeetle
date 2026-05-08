@@ -18,7 +18,7 @@ As of TigerBeetle 0.17.4, the minimum required Linux kernel version is 5.11.
   back to back) and reentering the kernel after each callback.
 
   Combined, these changes give a ~8% improvement on the standard benchmark, improve tail latencies
-  in certain edge cases, as waaell as prevent tick starvation under heavy load or slow disks.
+  in certain edge cases, as well as prevent tick starvation under heavy load or slow disks.
 
 - [#3701](https://github.com/tigerbeetle/tigerbeetle/pull/3701)
 
@@ -42,7 +42,8 @@ As of TigerBeetle 0.17.4, the minimum required Linux kernel version is 5.11.
 - [#3694](https://github.com/tigerbeetle/tigerbeetle/pull/3694),
   [#3684](https://github.com/tigerbeetle/tigerbeetle/pull/3684)
 
-  Cache the Zig download for test workflows, add the flake count to Devhub and misc CI fixes.
+  Cache the Zig download for test workflows, add the flake count to Devhub and
+  miscellaneous CI fixes.
 
 ### TigerTracks 🎧
 
