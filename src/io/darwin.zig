@@ -54,7 +54,7 @@ pub const IO = struct {
         defer self.stats.trace();
 
         var timer = try std.time.Timer.start();
-        defer self.stats.now.time_run_for_ns.ns += timer.read();
+        defer self.stats.window.time_run_for_ns.ns += timer.read();
 
         var timed_out = false;
         var completion: Completion = undefined;
@@ -140,7 +140,7 @@ pub const IO = struct {
         while (completed.pop()) |completion| {
             (completion.callback)(self, completion);
         }
-        self.stats.now.time_callbacks.ns += timer.read();
+        self.stats.window.time_callbacks.ns += timer.read();
     }
 
     fn flush_io(self: *IO, events: []posix.Kevent) usize {

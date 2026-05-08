@@ -95,6 +95,7 @@
 //!         },
 //!     },
 //!
+const builtin = @import("builtin");
 const std = @import("std");
 const assert = std.debug.assert;
 const log = std.log.scoped(.trace);
@@ -436,6 +437,8 @@ pub fn emit_metrics(tracer: *Tracer) void {
 pub fn timing(tracer: *Tracer, event_timing: EventTiming, duration: Duration) void {
     const timing_slot = event_timing.slot();
 
+    tracer.timing_warn(event_timing, duration);
+
     if (tracer.events_timing[timing_slot]) |*event_timing_existing| {
         assert(std.meta.eql(event_timing_existing.event, event_timing));
 
@@ -456,6 +459,24 @@ pub fn timing(tracer: *Tracer, event_timing: EventTiming, duration: Duration) vo
                 .count = 1,
             },
         };
+    }
+}
+
+/// Log warnings for slow timings, to have redundancy with metrics.
+/// Perhaps thresholds should be runtime-configurable in main, but let's simply hard-code for now.
+pub fn timing_warn(tracer: *Tracer, event_timing: EventTiming, duration: Duration) void {
+    const fast = comptime builtin.target.os.tag == .linux and builtin.mode != .Debug;
+    const threshold: Duration = switch (event_timing) {
+        .loop_run_for_ns => if (fast) .ms(50) else .ms(500),
+        else => return,
+    };
+    if (duration.ns >= threshold.ns) {
+        log.warn("{}: timing: {s} too slow ({} > {})", .{
+            tracer.process_id,
+            @tagName(event_timing),
+            duration,
+            threshold,
+        });
     }
 }
 
