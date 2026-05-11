@@ -126,8 +126,9 @@ pub const IO = struct {
 
         defer self.stats.trace();
 
-        var timer = try std.time.Timer.start();
-        defer self.stats.window.time_run_for_ns.ns += timer.read();
+        const timer = self.time_os.monotonic();
+        defer self.stats.window.time_run_for_ns.ns +=
+            self.time_os.monotonic().duration_since(timer).ns;
 
         var now = self.time_os.monotonic();
         const deadline = now.add(.{ .ns = nanoseconds });
@@ -158,10 +159,11 @@ pub const IO = struct {
         const wait_nr: u32 = if (wait_duration_ns > 0) 1 else 0;
 
         while (true) {
-            var timer = std.time.Timer.start() catch unreachable;
+            const timer = self.time_os.monotonic();
             // Doesn't account for flush_completions below; which indicates a bad assumption either
             // on our sizing of the loop, or a bug in the kernel.
-            defer self.stats.window.time_kernel.ns += timer.read();
+            defer self.stats.window.time_kernel.ns +=
+                self.time_os.monotonic().duration_since(timer).ns;
 
             const submitted = submit_and_wait_timeout(
                 &self.ring,
@@ -223,8 +225,9 @@ pub const IO = struct {
     fn run_callback(self: *IO) !void {
         const completion = self.completed.pop() orelse return;
 
-        var timer = try std.time.Timer.start();
-        defer self.stats.window.time_callbacks.ns += timer.read();
+        const timer = self.time_os.monotonic();
+        defer self.stats.window.time_callbacks.ns +=
+            self.time_os.monotonic().duration_since(timer).ns;
 
         if (completion.operation == .next_tick) {
             // next_tick completions are never submitted to the kernel,
@@ -1744,7 +1747,7 @@ pub const IO = struct {
             for (0..4) |_| {
                 posix.flock(fd, posix.LOCK.EX | posix.LOCK.NB) catch |err| switch (err) {
                     error.WouldBlock => {
-                        std.time.sleep(50 * std.time.ns_per_ms);
+                        std.Thread.sleep(50 * std.time.ns_per_ms);
                         continue;
                     },
                     else => return err,
