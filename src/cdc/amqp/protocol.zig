@@ -387,6 +387,7 @@ pub const Decoder = struct {
         const property_flags = try self.read_int(u16);
 
         if (initial_index + frame_size > self.buffer.len) return error.BufferExhausted;
+        if (initial_index + frame_size < self.index) return error.Unexpected;
         const properties = self.buffer[self.index .. initial_index + frame_size];
         self.index += properties.len;
 

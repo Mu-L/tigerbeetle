@@ -1842,21 +1842,22 @@ pub fn parse_macho(buffer: []const u8) !HeaderBodyOffsets {
 
         switch (fat_arch_cpu_type) {
             @intFromEnum(section_to_macho_cpu.tb_mvb_aarch64) => {
+                if (body_offset_aarch64 != null) return error.InvalidMachoDuplicate;
                 assert(body_offset_aarch64 == null and body_size_aarch64 == null);
                 body_offset_aarch64 = @byteSwap(fat_arch.offset);
                 body_size_aarch64 = @byteSwap(fat_arch.size);
             },
             @intFromEnum(section_to_macho_cpu.tb_mvh_aarch64) => {
-                assert(header_offset_aarch64 == null);
+                if (header_offset_aarch64 != null) return error.InvalidMachoDuplicate;
                 header_offset_aarch64 = @byteSwap(fat_arch.offset);
             },
             @intFromEnum(section_to_macho_cpu.tb_mvb_x86_64) => {
-                assert(body_offset_x86_64 == null and body_size_x86_64 == null);
+                if (body_offset_x86_64 != null) return error.InvalidMachoDuplicate;
                 body_offset_x86_64 = @byteSwap(fat_arch.offset);
                 body_size_x86_64 = @byteSwap(fat_arch.size);
             },
             @intFromEnum(section_to_macho_cpu.tb_mvh_x86_64) => {
-                assert(header_offset_x86_64 == null);
+                if (header_offset_x86_64 != null) return error.InvalidMachoDuplicate;
                 header_offset_x86_64 = @byteSwap(fat_arch.offset);
             },
             else => {},
