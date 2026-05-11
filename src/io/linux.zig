@@ -1886,6 +1886,10 @@ pub const IO = struct {
                         .len = block_device_size,
                     };
 
+                    // Discard normally, but not always, zeros out the sectors involved. This is ok
+                    // since the zero superblock check above is to prevent accidentally overwriting
+                    // a real device. replica_format.zig checks that the format doesn't depend on
+                    // preexisting data.
                     log.info("discarding {}...", .{std.fmt.fmtIntSizeBin(block_device_size)});
                     switch (os.linux.E.init(os.linux.ioctl(
                         fd,
