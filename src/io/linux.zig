@@ -60,7 +60,7 @@ pub const IO = struct {
 
     stats: common.Stats = .{},
 
-    time_os: TimeOS = .{},
+    time: TimeOS = .{},
 
     run_for_ns_active: bool = false,
 
@@ -126,14 +126,14 @@ pub const IO = struct {
 
         defer self.stats.trace();
 
-        const timer = self.time_os.monotonic();
+        const timer = self.time.monotonic();
         defer self.stats.window.time_run_for_ns.ns +=
-            self.time_os.monotonic().duration_since(timer).ns;
+            self.time.monotonic().duration_since(timer).ns;
 
-        var now = self.time_os.monotonic();
+        var now = self.time.monotonic();
         const deadline = now.add(.{ .ns = nanoseconds });
 
-        while (now.ns < deadline.ns) : (now = self.time_os.monotonic()) {
+        while (now.ns < deadline.ns) : (now = self.time.monotonic()) {
             // If there are callbacks ready to run, don't wait in the kernel: the callbacks may
             // queue more work, which should be submitted as soon as possible.
             const block_ns = if (self.completed.count() == 0) deadline.ns -| now.ns else 0;
@@ -159,11 +159,11 @@ pub const IO = struct {
         const wait_nr: u32 = if (wait_duration_ns > 0) 1 else 0;
 
         while (true) {
-            const timer = self.time_os.monotonic();
+            const timer = self.time.monotonic();
             // Doesn't account for flush_completions below; which indicates a bad assumption either
             // on our sizing of the loop, or a bug in the kernel.
             defer self.stats.window.time_kernel.ns +=
-                self.time_os.monotonic().duration_since(timer).ns;
+                self.time.monotonic().duration_since(timer).ns;
 
             const submitted = submit_and_wait_timeout(
                 &self.ring,
@@ -225,9 +225,9 @@ pub const IO = struct {
     fn run_callback(self: *IO) !void {
         const completion = self.completed.pop() orelse return;
 
-        const timer = self.time_os.monotonic();
+        const timer = self.time.monotonic();
         defer self.stats.window.time_callbacks.ns +=
-            self.time_os.monotonic().duration_since(timer).ns;
+            self.time.monotonic().duration_since(timer).ns;
 
         if (completion.operation == .next_tick) {
             // next_tick completions are never submitted to the kernel,
