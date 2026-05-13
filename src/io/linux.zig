@@ -527,9 +527,9 @@ pub const IO = struct {
         result: i32 = undefined,
         link: QueueType(Completion).Link = .{},
         operation: Operation,
-        context: ?*anyopaque,
+        context: *anyopaque,
         callback: *const fn (
-            context: ?*anyopaque,
+            context: *anyopaque,
             completion: *Completion,
             result: *const anyopaque,
         ) void,
@@ -1489,7 +1489,7 @@ pub const IO = struct {
             var buffer: u64 = undefined;
 
             fn on_read(
-                _: *Context,
+                _: *void,
                 completion_inner: *Completion,
                 result: ReadError!usize,
             ) void {
@@ -1500,8 +1500,8 @@ pub const IO = struct {
         };
 
         self.read(
-            *Context,
-            undefined,
+            *void,
+            @constCast(&{}),
             Context.on_read,
             completion,
             event,
@@ -2033,10 +2033,11 @@ pub const IO = struct {
             completion: *Completion,
             result: Result,
         ) void,
-    ) *const fn (?*anyopaque, *Completion, *const anyopaque) void {
+    ) *const fn (*anyopaque, *Completion, *const anyopaque) void {
+        comptime assert(@typeInfo(Context) == .pointer);
         return &struct {
             fn erased(
-                ctx_any: ?*anyopaque,
+                ctx_any: *anyopaque,
                 completion: *Completion,
                 result_any: *const anyopaque,
             ) void {
