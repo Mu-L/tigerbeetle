@@ -68,10 +68,8 @@ pub const IO = struct {
         defer self.stats.trace();
 
         const timer = self.time.monotonic();
-        defer {
-            const elapsed = timer.elapsed(self.time.monotonic());
-            self.stats.window.time_run_for_ns.ns += elapsed.ns;
-        }
+        defer self.stats.window.time_run_for_ns.ns +=
+            timer.elapsed(self.time.monotonic()).ns;
 
         const Callback = struct {
             fn on_timeout(

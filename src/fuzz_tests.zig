@@ -115,7 +115,7 @@ pub fn main() !void {
 }
 
 fn main_smoke(gpa: std.mem.Allocator) !void {
-    var time = TimeOS{};
+    var time: TimeOS = .{};
     const timer_all = time.monotonic();
     inline for (comptime std.enums.values(FuzzersEnum)) |fuzzer| {
         const events_max = switch (fuzzer) {
@@ -165,7 +165,7 @@ fn main_single(gpa: std.mem.Allocator, cli_args: CLIArgs) !void {
     const seed = cli_args.seed orelse std.crypto.random.int(u64);
     log.info("Fuzz seed = {}", .{seed});
 
-    var time = TimeOS{};
+    var time: TimeOS = .{};
     const timer = time.monotonic();
     switch (cli_args.fuzzer) {
         .smoke => unreachable,

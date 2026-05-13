@@ -399,7 +399,7 @@ fn check_grid(integrity: *Integrity, seed: u64) !u64 {
     });
     defer parent_progress_node.end();
 
-    var time = vsr.time.TimeOS{};
+    var time: vsr.time.TimeOS = .{};
     const timer = time.monotonic();
 
     while (true) {
