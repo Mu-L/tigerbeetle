@@ -1558,7 +1558,7 @@ pub fn ReplicaType(
                         .{
                             self.replica,
                             self.commit_fault.interval_ewma,
-                            now.duration_since(self.commit_fault.signal_last),
+                            self.commit_fault.signal_last.elapsed(now),
                         },
                     );
                 }
@@ -1576,7 +1576,7 @@ pub fn ReplicaType(
                         .{
                             self.replica,
                             self.commit_fault.interval_ewma,
-                            now.duration_since(self.commit_fault.signal_last),
+                            self.commit_fault.signal_last.elapsed(now),
                         },
                     );
                     self.send_exit_view();
@@ -5223,8 +5223,8 @@ pub fn ReplicaType(
                 .ns = @as(u64, @intCast(self.clock.realtime())) -|
                     self.commit_prepare.?.header.timestamp,
             };
-            const commit_completion_time_local = self.clock.monotonic()
-                .duration_since(self.commit_started.?);
+            const commit_completion_time_local =
+                self.commit_started.?.elapsed(self.clock.monotonic());
 
             // Only time operations when:
             // * Running with the real state machine - as otherwise there's a circular dependency,

@@ -219,7 +219,7 @@ pub fn StorageType(comptime IO: type) type {
 
                 self.tracer.timing(
                     .{ .storage_read = .{ .zone = read.zone } },
-                    self.tracer.time.monotonic().duration_since(read.start.?),
+                    read.start.?.elapsed(self.tracer.time.monotonic()),
                 );
 
                 read.callback(read);
@@ -430,7 +430,7 @@ pub fn StorageType(comptime IO: type) type {
             if (write.buffer.len == 0) {
                 self.tracer.timing(
                     .{ .storage_write = .{ .zone = write.zone } },
-                    self.tracer.time.monotonic().duration_since(write.start.?),
+                    write.start.?.elapsed(self.tracer.time.monotonic()),
                 );
 
                 write.callback(write);
