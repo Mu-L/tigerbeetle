@@ -152,17 +152,16 @@ pub fn StorageType(comptime IO: type) type {
             // Do a bit of pointer trickery to keep the grid on_next_tick interface the same for
             // now.
             storage.io.next_tick(
-                ?*anyopaque,
-                @ptrCast(@constCast(callback)),
+                *anyopaque,
+                @constCast(callback),
                 struct {
                     fn adapter(
-                        ctx: ?*anyopaque,
+                        ctx: *anyopaque,
                         completion: *IO.Completion,
                         _: IO.NextTickResult,
                     ) void {
-                        const callback_original: *const fn (*NextTick) void = @ptrCast(
-                            @alignCast(ctx.?),
-                        );
+                        const callback_original: *const fn (*NextTick) void =
+                            @ptrCast(@alignCast(ctx));
                         callback_original(completion);
                     }
                 }.adapter,
