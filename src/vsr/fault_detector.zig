@@ -57,11 +57,11 @@ pub fn init(options: struct {
 pub fn signal(detector: *FaultDetector, now: Instant) void {
     const past = detector.signal_last;
     assert(past.ns <= now.ns);
-    const interval = past.elapsed(now)
+    const elapsed = past.elapsed(now)
         // Clamp first, then ewma_add, to avoid overflows.
         .clamp(detector.interval_min, detector.interval_max);
 
-    detector.interval_ewma = ewma_add_duration(detector.interval_ewma, interval);
+    detector.interval_ewma = ewma_add_duration(detector.interval_ewma, elapsed);
     detector.signal_last = now;
 }
 
@@ -86,16 +86,16 @@ pub fn signal(detector: *FaultDetector, now: Instant) void {
 pub fn tardy(detector: *FaultDetector, now: Instant) enum { green, yellow, red } {
     const past = detector.signal_last;
     assert(past.ns <= now.ns);
-    const interval = past.elapsed(now);
+    const elapsed = past.elapsed(now);
 
-    if (interval.ns *| 2 <= detector.interval_ewma.ns * 3) { // interval <= 1.5 * interval_ewma
+    if (elapsed.ns *| 2 <= detector.interval_ewma.ns * 3) { // interval <= 1.5 * interval_ewma
         return .green;
     }
-    assert(interval.ns >= detector.interval_ewma.ns);
-    if (interval.ns <= detector.interval_ewma.ns * 3) {
+    assert(elapsed.ns >= detector.interval_ewma.ns);
+    if (elapsed.ns <= detector.interval_ewma.ns * 3) {
         return .yellow;
     }
-    assert(interval.ns > detector.interval_ewma.ns);
+    assert(elapsed.ns > detector.interval_ewma.ns);
     return .red;
 }
 

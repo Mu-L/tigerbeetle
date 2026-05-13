@@ -360,9 +360,8 @@ test "event" {
             self.event = try self.io.open_event();
             defer self.io.close_event(self.event);
 
-            var time_os: TimeOS = .{};
-            const timer = time_os.time();
-            const start = timer.monotonic();
+            var time: TimeOS = .{};
+            const timer = time.monotonic();
 
             // Listen to the event and spawn a thread that triggers the completion after some time.
             self.io.event_listen(self.event, &self.event_completion, on_event);
@@ -376,7 +375,7 @@ test "event" {
             assert(self.count == events_count);
 
             // Make sure at least some time has passed.
-            const elapsed = start.elapsed(timer.monotonic());
+            const elapsed = timer.elapsed(time.monotonic());
             assert(elapsed.ns >= delay);
         }
 
