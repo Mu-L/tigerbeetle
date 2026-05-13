@@ -195,7 +195,7 @@ test "signal" {
             assert(self.count == events_count);
 
             // Make sure at least some time has passed.
-            const elapsed = timer.monotonic().duration_since(start);
+            const elapsed = start.elapsed(timer.monotonic());
             assert(elapsed.ns >= delay);
         }
 

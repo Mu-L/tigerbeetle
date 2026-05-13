@@ -598,7 +598,7 @@ fn run_timeout_test(
     tmp_beetle.deinit(gpa);
     const result = try cdc_job.wait();
 
-    const elapsed = time.monotonic().duration_since(started);
+    const elapsed = started.elapsed(time.monotonic());
 
     try testing.expectEqual(@as(u8, 1), result.Exited);
     try testing.expect(elapsed.to_ms() > 1000);
