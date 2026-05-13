@@ -5223,9 +5223,8 @@ pub fn ReplicaType(
                 .ns = @as(u64, @intCast(self.clock.realtime())) -|
                     self.commit_prepare.?.header.timestamp,
             };
-            const commit_completion_time_local = self.commit_started.?.elapsed(
-                self.clock.monotonic()
-            );
+            const commit_completion_time_local =
+                self.commit_started.?.elapsed(self.clock.monotonic());
 
             // Only time operations when:
             // * Running with the real state machine - as otherwise there's a circular dependency,
