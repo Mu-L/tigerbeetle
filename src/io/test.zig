@@ -5,8 +5,11 @@ const posix = std.posix;
 const testing = std.testing;
 const assert = std.debug.assert;
 const stdx = @import("stdx");
+const maybe = stdx.maybe;
 const KiB = stdx.KiB;
 const MiB = stdx.MiB;
+const Instant = stdx.Instant;
+const Duration = stdx.Duration;
 
 const TimeOS = @import("../time.zig").TimeOS;
 const Time = @import("../time.zig").Time;
@@ -279,27 +282,26 @@ test "accept/connect/send/receive" {
 }
 
 test "timeout" {
-    const ms = 20;
-    const margin = 100;
+    const delay: Duration = comptime .ms(20);
     const count = 10;
 
     try struct {
         const Context = @This();
 
         io: IO,
-        timer: Time,
+        time: Time,
         count: u32 = 0,
-        stop_time: u64 = 0,
+        stop: ?Instant = null,
 
         fn run_test() !void {
             var time_os: TimeOS = .{};
-            const timer = time_os.time();
-            const start_time = timer.monotonic().ns;
             var self: Context = .{
-                .timer = timer,
+                .time = time_os.time(),
                 .io = try IO.init(32, 0),
             };
             defer self.io.deinit();
+
+            const start = self.time.monotonic();
 
             var completions: [count]IO.Completion = undefined;
             for (&completions) |*completion| {
@@ -308,7 +310,7 @@ test "timeout" {
                     &self,
                     timeout_callback,
                     completion,
-                    ms * std.time.ns_per_ms,
+                    delay.ns,
                 );
             }
             while (self.count < count) try self.io.run();
@@ -316,11 +318,16 @@ test "timeout" {
             try self.io.run();
             try testing.expectEqual(@as(u32, count), self.count);
 
-            try testing.expectApproxEqAbs(
-                @as(f64, ms),
-                @as(f64, @floatFromInt((self.stop_time - start_time) / std.time.ns_per_ms)),
-                margin,
-            );
+            const elapsed = start.elapsed(self.stop.?);
+            if (elapsed.ns < delay.ns) {
+                std.log.err("elapsed={} < delay={}", .{ elapsed, delay });
+                return error.TestUnexpectedResult;
+            }
+
+            assert(elapsed.ns >= delay.ns);
+            // We aren't running on RTOSes, and we did observed delays as large as 200ms on CI.
+            // This is unlikely under most normal circumstances though!
+            maybe(elapsed.ns >= delay.ns * 2);
         }
 
         fn timeout_callback(
@@ -331,7 +338,7 @@ test "timeout" {
             _ = completion;
             _ = result catch @panic("timeout error");
 
-            if (self.stop_time == 0) self.stop_time = self.timer.monotonic().ns;
+            if (self.stop == null) self.stop = self.time.monotonic();
             self.count += 1;
         }
     }.run_test();
