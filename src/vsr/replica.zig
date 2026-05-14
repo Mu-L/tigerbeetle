@@ -4777,15 +4777,7 @@ pub fn ReplicaType(
 
             if (self.status != .normal) return .ready;
             if (!self.primary()) return .ready;
-
-            var pipeline_iterator = self.pipeline.queue.prepare_queue.iterator();
-            const prepare = pipeline_iterator.next().?; // Skip the current commit.
-            assert(prepare.message == self.commit_prepare.?);
-            const pipeline_waiting = while (pipeline_iterator.next()) |queue_prepare| {
-                if (queue_prepare.ok_from_all_replicas.count() >= self.quorum_replication) {
-                    break true;
-                }
-            } else false;
+            if (self.solo()) return .ready;
 
             const commit_min_min = commit_min_min: {
                 var min: u64 = std.math.maxInt(u64);
@@ -4806,10 +4798,9 @@ pub fn ReplicaType(
             assert(commit_min_min <= self.commit_min + constants.pipeline_prepare_queue_max);
             const commit_lag = self.commit_min -| commit_min_min;
             assert(commit_lag <= self.commit_stall_lag_max);
+            assert(self.replica_count > 1);
 
             const stall_ms = ms: {
-                if (!pipeline_waiting) break :ms 0;
-
                 if (commit_lag < self.commit_stall_lag_min) {
                     if (self.prng.chance(self.commit_stall_probability)) {
                         break :ms constants.tick_ms;
@@ -4817,7 +4808,6 @@ pub fn ReplicaType(
                         break :ms 0;
                     }
                 } else {
-                    assert(self.replica_count > 1);
 
                     // "Stall 10ms for every quarter-checkpoint of commits lagged,
                     // but no longer than 40ms".
@@ -4846,6 +4836,9 @@ pub fn ReplicaType(
             if (stall_ticks == 0) {
                 return .ready;
             } else {
+                const prepare = self.pipeline.queue.prepare_queue.head().?;
+                assert(prepare.message == self.commit_prepare.?);
+
                 log.debug("{}: commit_stall op={} (oks={b} commit_lag={} stall_ticks={})", .{
                     self.log_prefix(),
                     prepare.message.header.op,
