@@ -282,16 +282,16 @@ test "accept/connect/send/receive" {
 }
 
 test "timeout" {
-    const delay: Duration = comptime .ms(20);
-    const count = 10;
-
     try struct {
-        const Context = @This();
-
         io: IO,
         time: Time,
-        count: u32 = 0,
+        timeouts_fired: u32 = 0,
         stop: ?Instant = null,
+
+        const delay: Duration = .ms(20);
+        const timeouts_total = 10;
+
+        const Context = @This();
 
         fn run_test() !void {
             var time_os: TimeOS = .{};
@@ -303,7 +303,7 @@ test "timeout" {
 
             const start = self.time.monotonic();
 
-            var completions: [count]IO.Completion = undefined;
+            var completions: [timeouts_total]IO.Completion = undefined;
             for (&completions) |*completion| {
                 self.io.timeout(
                     *Context,
@@ -313,10 +313,10 @@ test "timeout" {
                     delay.ns,
                 );
             }
-            while (self.count < count) try self.io.run();
+            while (self.timeouts_fired < timeouts_total) try self.io.run();
 
             try self.io.run();
-            try testing.expectEqual(@as(u32, count), self.count);
+            try testing.expectEqual(@as(u32, timeouts_total), self.timeouts_fired);
 
             const elapsed = start.elapsed(self.stop.?);
             if (elapsed.ns < delay.ns) {
@@ -339,7 +339,7 @@ test "timeout" {
             _ = result catch @panic("timeout error");
 
             if (self.stop == null) self.stop = self.time.monotonic();
-            self.count += 1;
+            self.timeouts_fired += 1;
         }
     }.run_test();
 }
