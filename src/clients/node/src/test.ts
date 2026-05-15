@@ -17,6 +17,10 @@ import {
   RequestError,
 } from '.'
 
+async function sleep_ms(ms: number): Promise<void> {
+  await new Promise(resolve => setTimeout(resolve, ms))
+}
+
 const client = createClient({
   cluster_id: 0n,
   replica_addresses: [process.env.TB_ADDRESS || '3000']
@@ -69,7 +73,7 @@ test('id() monotonically increasing', async (): Promise<void> => {
   for (let i = 0; i < 10_000_000; i++) {
     // Ensure ID is monotonic between milliseconds if the loop executes too fast.
     if (i % 10_000 == 0) {
-      await new Promise(resolve => setTimeout(resolve, 1))
+      await sleep_ms(1)
     }
 
     const idB = id();
@@ -446,9 +450,8 @@ test('cannot void an expired transfer', async (): Promise<void> => {
   // We need to wait 1s for the server to expire the transfer, however the
   // server can pulse the expiry operation anytime after the timeout,
   // so adding an extra delay to avoid flaky tests.
-  // TODO: Use `await setTimeout(1000)` when upgrade to Node.js > 15.
   const extra_wait_time = 500;
-  await new Promise(_ => setTimeout(_, (transfer.timeout * 1000) + extra_wait_time));
+  await sleep_ms((transfer.timeout * 1000) + extra_wait_time);
 
   // Looking up the accounts again for the updated balance.
   accounts = await client.lookupAccounts([accountA.id, accountB.id])
@@ -1461,7 +1464,7 @@ test('can import accounts and transfers', async (): Promise<void> => {
 
   // Wait 10 ms so we can use the account's timestamp as the reference for past time
   // after the last object inserted.
-  await new Promise(_ => setTimeout(_, 10));
+  await sleep_ms(10);
 
   const accountA: Account = {
     id: id(),
@@ -1554,12 +1557,16 @@ test('accept zero-length lookup_transfers', async (): Promise<void> => {
 test("destroy client in-flight", async (): Promise<void> => {
   // Non-existing cluster.
   const client = createClient({ cluster_id: 92n, replica_addresses: ["99"] });
-  setTimeout(() => client.destroy(), 30);
+  const destroy = (async () => {
+    await sleep_ms(30)
+    client.destroy()
+  })()
   assert.rejects(async () => await client.lookupAccounts([0n]), (err) => {
     assert.ok(err instanceof RequestError)
     assert.strictEqual(err.code,  ErrorCodes.ERR_CLIENT_CLOSED)
     return true
   })
+  await destroy
 });
 
 async function main () {
