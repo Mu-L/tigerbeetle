@@ -3594,18 +3594,9 @@ pub fn ReplicaType(
 
             assert(waiting_count < self.replica_count);
             for (waiting[0..waiting_count]) |replica| {
-                assert(replica < self.replica_count);
-
-                log.debug("{}: on_prepare_timeout: waiting for replica {}", .{
-                    self.log_prefix(),
-                    replica,
-                });
-            }
-
-            for (waiting[0..waiting_count]) |replica| {
                 assert(replica != self.replica);
 
-                log.debug("{}: on_prepare_timeout: replicating to replica {}", .{
+                log.debug("{}: on_prepare_timeout: waiting for replica {}; replicating", .{
                     self.log_prefix(),
                     replica,
                 });
