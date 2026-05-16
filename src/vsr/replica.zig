@@ -1992,28 +1992,19 @@ pub fn ReplicaType(
         ///
         /// The primary starts by sending a prepare message to itself.
         ///
-        /// Each replica (including the primary) then forwards this prepare message to the next
-        /// replica in the configuration, in parallel to writing to its own journal, closing the
-        /// circle until the next replica is back to the primary, in which case the replica does not
-        /// forward.
+        /// The primary broadcasts this prepare message to every other replica and standby, in
+        /// parallel to writing to its own journal.
         ///
-        /// This keeps the primary's outgoing bandwidth limited (one-for-one) to incoming bandwidth,
-        /// since the primary need only replicate to the next replica. Otherwise, the primary would
-        /// need to replicate to multiple backups, dividing available bandwidth.
-        ///
-        /// This does not impact latency, since with Flexible Paxos we need only one remote
-        /// prepare_ok. It is ideal if this synchronous replication to one remote replica is to the
-        /// next replica, since that is the replica next in line to be primary, which will need to
-        /// be up-to-date before it can start the next view.
+        /// Star replication prioritizes latency: with Flexible Paxos the primary can commit after
+        /// the fastest prepare_ok quorum returns, without waiting for a ring of forwards.
         ///
         /// At the same time, asynchronous replication keeps going, so that if our local disk is
         /// slow, then any latency spike will be masked by more remote prepare_ok messages as they
         /// come in. This gives automatic tail latency tolerance for storage latency spikes.
         ///
-        /// The remaining problem then is tail latency tolerance for network latency spikes.
-        /// If the next replica is down or partitioned, then the primary's prepare timeout will
-        /// fire, and the primary will resend but to another replica, until it receives enough
-        /// prepare_ok's.
+        /// The remaining problem then is tail latency tolerance for network latency spikes. If
+        /// prepare_oks do not arrive in time, the primary's prepare timeout fires and resends to
+        /// all replicas still missing from the prepare's ack set.
         fn on_prepare(self: *Replica, message: *Message.Prepare) void {
             assert(message.header.command == .prepare);
             assert(message.header.replica < self.replica_count);
@@ -2032,15 +2023,14 @@ pub fn ReplicaType(
             }
 
             // Replication balances two goals:
-            // - replicate anything that the next replica is likely missing,
+            // - replicate anything that remote replicas are likely missing,
             // - avoid a feedback loop of cascading needless replication.
-            // Replicate anything that we didn't previously had ourselves.
+            // Replicate anything that we didn't previously have ourselves.
             //
             // Use `has_prepare` (checks whether a replica has both the header and the corresponding
             // prepare) instead of `has_header` (checks whether the replica has the header). The
-            // latter is prone to a race wherein a replica that receives a future header *before*
-            // the corresponding prepare (via View for instance) would end up not forwarding
-            // the prepare, thereby breaking the replication chain.
+            // latter is prone to a race where a replica that receives a future header before the
+            // corresponding prepare (via View, for instance) would not help repair the prepare.
             if (message.header.op > self.commit_min and !self.journal.has_prepare(message.header)) {
                 self.replicate(message);
                 if (message.header.op > self.op) {
@@ -3651,24 +3641,14 @@ pub fn ReplicaType(
 
             assert(waiting_count < self.replica_count);
             for (waiting[0..waiting_count]) |replica| {
-                assert(replica < self.replica_count);
+                assert(replica != self.replica);
 
-                log.debug("{}: on_prepare_timeout: waiting for replica {}", .{
+                log.debug("{}: on_prepare_timeout: waiting for replica {}; replicating", .{
                     self.log_prefix(),
                     replica,
                 });
+                self.send_message_to_replica(replica, prepare.message);
             }
-
-            // Cycle through the list to reach live replicas and get around partitions:
-            // We do not assert `prepare_timeout.attempts > 0` since the counter may wrap back to 0.
-            const replica = waiting[self.prepare_timeout.attempts % waiting_count];
-            assert(replica != self.replica);
-
-            log.debug("{}: on_prepare_timeout: replicating to replica {}", .{
-                self.log_prefix(),
-                replica,
-            });
-            self.send_message_to_replica(replica, prepare.message);
         }
 
         fn on_primary_abdicate_timeout(self: *Replica) void {
@@ -8479,16 +8459,14 @@ pub fn ReplicaType(
             if (!self.journal.has_header(header)) self.journal.set_header_as_dirty(header);
         }
 
-        /// Replicates to the next replica in the configuration (until we get back to the primary):
-        /// Replication starts and ends with the primary, we never forward back to the primary.
+        /// Replicates from the primary to every other replica and standby.
         /// Does not flood the network with prepares that have already committed.
-        /// Replication to standbys works similarly, jumping off the replica just before primary.
         /// TODO Use recent heartbeat data for next replica to leapfrog if faulty (optimization).
         fn replicate(self: *Replica, message: *Message.Prepare) void {
             assert(message.header.command == .prepare);
 
-            // Older prepares should be replicated --- if we missed such a prepare in the past,
-            // our next-in-ring is likely missing it too!
+            // Older prepares should be replicated; if we missed such a prepare in the past,
+            // other replicas may be missing it too.
             maybe(message.header.op < self.op);
             maybe(message.header.op < self.commit_max);
             maybe(message.header.view < self.view);
